@@ -9,7 +9,17 @@ dependencies = []
 
 [project.optional-dependencies]
 # Il server e l'ingest arrivano dopo: l'audit non ha dipendenze di proposito.
-server = ["fastapi", "uvicorn[standard]", "sqlalchemy", "jinja2", "pyzotero>=1.15.1", "mcp>=2.0,<3"]
+server = [
+  "fastapi",
+  "uvicorn[standard]",
+  "sqlalchemy",
+  "jinja2",
+  "python-multipart",
+  "bcrypt",
+  "python-jose[cryptography]",
+  "pyzotero>=1.15.1",
+  "mcp>=2.0,<3",
+]
 
 [project.scripts]
 catena = "catena.cli:main"

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Entra — catena{% endblock %}
+{% block body %}
+<div class="login">
+  <h1>catena</h1>
+  <p class="muted small">Riferimenti Zotero dentro documenti Word.</p>
+  {% if error %}<div class="alert">{{ error }}</div>{% endif %}
+  <form method="post" action="/login" class="card">
+    <label>Email<input type="email" name="email" required autocomplete="username" autofocus></label>
+    <label>Password<input type="password" name="password" required autocomplete="current-password"></label>
+    <button class="btn btn-primary" type="submit">Entra</button>
+  </form>
+</div>
+{% endblock %}

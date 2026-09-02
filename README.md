@@ -30,6 +30,22 @@ Codice d'uscita: `0` pulito, `1` almeno un errore (o un avviso con `--strict`), 
 
 Vale già da solo su manoscritti che esistono, scritti anche da altri e anni fa; non richiede che il resto di `catena` sia pronto; e serve a validare `catena` stessa quando lo sarà. Sul fixture dello spike ritrova **staticamente** il difetto che prima si poteva osservare solo aprendo Word.
 
+## Il server
+
+Web minimo più superficie MCP, stessa impalcatura degli altri strumenti borant: FastAPI, JWT in cookie httpOnly, SQLite in un file, Docker dietro Caddy. Vedi [DEPLOY.md](DEPLOY.md).
+
+Tre pagine: login, binding, profilo. È il profilo che conta, e fa due cose.
+
+**Configura la chiave Zotero, e la rifiuta se ha il perimetro sbagliato.** `catena` non ha credenziali proprie verso Zotero: usa quella dell'utente, e arriva esattamente dove arriva lui. Ma una chiave non è accettabile solo perché funziona. Il caso che il validatore esiste per intercettare è subdolo e capita davvero: `access.groups` può avere una voce `all` che vale da default per i gruppi non elencati, e con `all.write = true` i `write: false` sui gruppi esistenti sembrano un perimetro stretto mentre **ogni gruppo futuro nascerà scrivibile**. Il perimetro non è fisso: cresce da solo. La forma accettata è quella in cui il default nega e l'eccezione è una sola, esplicita:
+
+```
+Personal Library      : library access, NIENTE write, NIENTE files
+All Groups            : Read Only
+<gruppo di deposito>  : Read/Write   ← unica eccezione
+```
+
+**Gestisce le chiavi MCP.** Una chiave per client, legata a una persona: porta la sua identità e quindi la portata della sua chiave Zotero, né più né meno. Header `X-API-Key`, o la variante nel path per i client che non sanno mandare header custom — con l'avvertenza che quell'URL *è* la credenziale e finisce nei log.
+
 ## Sviluppo
 
 ```bash

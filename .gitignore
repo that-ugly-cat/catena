@@ -13,3 +13,7 @@ build/
 spike/*.docx
 !spike/catena-spike.docx
 scratch/
+
+# config locale dell'editor
+.claude/launch.json
+data/

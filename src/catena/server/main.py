@@ -1,0 +1,244 @@
+"""
+catena — app web.
+
+Poche pagine, e per ora nessuna che scriva su Zotero: si entra, si configura la
+propria chiave Zotero, si gestiscono le chiavi MCP, si vedono i binding. Le
+operazioni vere arriveranno dalla superficie MCP.
+
+La pagina che conta e' `/profile`: e' li' che una chiave Zotero viene validata
+prima di essere accettata (SPEC §2.2), ed e' l'unico punto del sistema in cui
+un perimetro sbagliato puo' ancora essere fermato prima di fare danni.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from sqlalchemy.orm import Session
+
+from . import zotero_key
+from .auth import (
+    COOKIE,
+    create_token,
+    get_current_user,
+    get_user_or_none,
+    hash_password,
+    verify_password,
+)
+from .models import ApiKey, Binding, User, ZoteroCredential, get_db, init_db, utcnow
+
+HERE = Path(__file__).parent
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "https://catena.borant.eu")
+
+app = FastAPI(title="catena", docs_url=None, redoc_url=None)
+app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
+templates = Jinja2Templates(directory=HERE / "templates")
+
+
+@app.on_event("startup")
+def _startup() -> None:
+    init_db()
+
+
+def render(request: Request, name: str, **ctx) -> HTMLResponse:
+    return templates.TemplateResponse(request, name, ctx)
+
+
+@app.exception_handler(HTTPException)
+def _http_error(request: Request, exc: HTTPException):
+    if exc.status_code == 401:
+        return RedirectResponse("/login", status_code=303)
+    return templates.TemplateResponse(
+        request, "error.html", {"code": exc.status_code, "detail": exc.detail},
+        status_code=exc.status_code,
+    )
+
+
+# --- sessione ----------------------------------------------------------------
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_form(request: Request):
+    return render(request, "login.html")
+
+
+@app.post("/login")
+def login(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.email == email.strip().lower()).first()
+    if not user or not user.is_active or not verify_password(password, user.password_hash):
+        return render(request, "login.html", error="Email o password non validi.")
+    resp = RedirectResponse("/", status_code=303)
+    resp.set_cookie(
+        COOKIE, create_token(user.id), httponly=True, samesite="lax",
+        secure=PUBLIC_URL.startswith("https"), max_age=7 * 24 * 3600,
+    )
+    return resp
+
+
+@app.get("/logout")
+def logout():
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie(COOKIE)
+    return resp
+
+
+# --- home --------------------------------------------------------------------
+
+
+@app.get("/", response_class=HTMLResponse)
+def home(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    bindings = (
+        db.query(Binding)
+        .filter(Binding.user_id == user.id)
+        .order_by(Binding.updated_at.desc())
+        .all()
+    )
+    cred = db.query(ZoteroCredential).filter(ZoteroCredential.user_id == user.id).first()
+    return render(request, "home.html", user=user, bindings=bindings, cred=cred)
+
+
+# --- profilo: chiave Zotero e chiavi MCP -------------------------------------
+
+
+def _profile_ctx(db: Session, user: User, **extra) -> dict:
+    keys = (
+        db.query(ApiKey)
+        .filter(ApiKey.user_id == user.id)
+        .order_by(ApiKey.active.desc(), ApiKey.created_at.desc())
+        .all()
+    )
+    cred = db.query(ZoteroCredential).filter(ZoteroCredential.user_id == user.id).first()
+    scope = None
+    if cred and cred.scope_json:
+        try:
+            scope = zotero_key.evaluate(json.loads(cred.scope_json))
+        except (json.JSONDecodeError, TypeError):
+            scope = None
+    return {
+        "user": user, "keys": keys, "cred": cred, "scope": scope,
+        "public_url": PUBLIC_URL, **extra,
+    }
+
+
+@app.get("/profile", response_class=HTMLResponse)
+def profile(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return render(request, "profile.html", **_profile_ctx(db, user))
+
+
+@app.post("/profile/zotero", response_class=HTMLResponse)
+def save_zotero_key(
+    request: Request,
+    api_key: str = Form(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Valida prima, salva dopo. Una chiave dal perimetro sbagliato non entra."""
+    api_key = api_key.strip()
+    try:
+        scope = zotero_key.check(api_key)
+    except zotero_key.ZoteroError as e:
+        return render(request, "profile.html", **_profile_ctx(db, user, error=str(e)))
+
+    if not scope.usable:
+        return render(
+            request, "profile.html",
+            **_profile_ctx(db, user, rejected=scope, error=None),
+        )
+
+    cred = db.query(ZoteroCredential).filter(ZoteroCredential.user_id == user.id).first()
+    if not cred:
+        cred = ZoteroCredential(user_id=user.id)
+        db.add(cred)
+    cred.key = api_key
+    cred.zotero_user_id = scope.user_id
+    cred.zotero_username = scope.username
+    cred.scope_json = scope.raw_json
+    cred.verdict = scope.verdict
+    cred.checked_at = utcnow()
+    db.commit()
+    return render(
+        request, "profile.html",
+        **_profile_ctx(db, user, ok="Chiave Zotero verificata e salvata."),
+    )
+
+
+@app.post("/profile/zotero/forget")
+def forget_zotero_key(
+    user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    db.query(ZoteroCredential).filter(ZoteroCredential.user_id == user.id).delete()
+    db.commit()
+    return RedirectResponse("/profile", status_code=303)
+
+
+@app.post("/profile/keys")
+def new_api_key(
+    name: str = Form(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    db.add(ApiKey(user_id=user.id, name=name.strip() or "senza nome"))
+    db.commit()
+    return RedirectResponse("/profile", status_code=303)
+
+
+@app.post("/profile/keys/{key_id}/revoke")
+def revoke_api_key(
+    key_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    row = (
+        db.query(ApiKey)
+        .filter(ApiKey.id == key_id, ApiKey.user_id == user.id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(404, "Chiave non trovata")
+    row.active = False
+    db.commit()
+    return RedirectResponse("/profile", status_code=303)
+
+
+@app.post("/profile/password")
+def change_password(
+    request: Request,
+    current: str = Form(...),
+    new: str = Form(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not verify_password(current, user.password_hash):
+        return render(
+            request, "profile.html",
+            **_profile_ctx(db, user, error="La password attuale non e' corretta."),
+        )
+    user.password_hash = hash_password(new)
+    db.commit()
+    return render(
+        request, "profile.html", **_profile_ctx(db, user, ok="Password aggiornata.")
+    )
+
+
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
