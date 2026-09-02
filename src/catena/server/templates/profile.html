@@ -1,137 +1,140 @@
 {% extends "base.html" %}
-{% block title %}Profilo — catena{% endblock %}
+{% block title %}Profile — catena{% endblock %}
 {% block body %}
-<h1>Profilo</h1>
-{% if error %}<div class="alert">{{ error }}</div>{% endif %}
-{% if ok %}<div class="alert alert-ok">{{ ok }}</div>{% endif %}
+<h1>Profile</h1>
+{% if error %}<div class="flash">{{ error }}</div>{% endif %}
+{% if ok %}<div class="flash flash-ok">{{ ok }}</div>{% endif %}
 
 <div class="card">
   <dl class="ro">
-    <dt>Nome</dt><dd>{{ user.name }}</dd>
+    <dt>Name</dt><dd>{{ user.name }}</dd>
     <dt>Email</dt><dd>{{ user.email }}</dd>
+    <dt>Sign-in</dt><dd>{% if gateway %}Borant ID{% else %}local{% endif %}</dd>
   </dl>
 </div>
 
-{# ── chiave Zotero ─────────────────────────────────────────────────────── #}
+{# ── Zotero key ───────────────────────────────────────────────────────── #}
 <div class="card">
-  <h2>Chiave Zotero</h2>
+  <h2>Zotero key</h2>
   <p class="small muted">
-    catena non ha credenziali proprie verso Zotero: usa la tua, e arriva esattamente
-    dove arrivi tu. La chiave si crea su
+    catena has no credentials of its own towards Zotero: it uses yours, and it
+    reaches exactly as far as you do. Create one at
     <a href="https://www.zotero.org/settings/keys" target="_blank" rel="noopener">zotero.org/settings/keys</a>.
   </p>
 
   {% if rejected %}
   <div class="verdict verdict-{{ rejected.verdict }}">
-    <strong>Chiave rifiutata — perimetro troppo largo.</strong>
+    <strong>Key refused — the perimeter is too wide.</strong>
     <ul>{% for r in rejected.reasons %}<li>{{ r }}</li>{% endfor %}</ul>
     <p class="small muted">
-      Non è pignoleria: una chiave il cui default concede scrittura non ha un
-      perimetro fisso, ne ha uno che cresce da solo. Correggila su zotero.org e
-      riprova — non è stata salvata.
+      This is not pedantry. A key whose default grants write access does not
+      have a fixed perimeter, it has one that grows on its own. Fix it on
+      zotero.org and try again — nothing was saved.
     </p>
   </div>
   {% endif %}
 
   {% if cred %}
   <table class="table">
-    <tr><th>Chiave</th><td><code class="key">{{ cred.masked }}</code></td></tr>
+    <tr><th>Key</th><td><code class="key">{{ cred.masked }}</code></td></tr>
     <tr><th>Account</th><td>{{ cred.zotero_username or '—' }} <span class="muted small">(userID {{ cred.zotero_user_id or '?' }})</span></td></tr>
-    <tr><th>Verificata</th><td class="muted small">{{ cred.checked_at.strftime('%d/%m/%Y') if cred.checked_at else '—' }}</td></tr>
+    <tr><th>Verified</th><td class="muted small">{{ cred.checked_at.strftime('%d %b %Y') if cred.checked_at else '—' }}</td></tr>
     {% if scope %}
-    <tr><th>Perimetro</th><td>
-      <span class="pill pill-ok">libreria personale in sola lettura</span>
-      <span class="pill pill-ok">gruppi in lettura per default</span>
-      {% for g in scope.writable_groups %}<span class="pill pill-write">scrive su {{ g }}</span>{% endfor %}
-      <div class="small muted mt">{{ scope.readable_groups|length }} gruppi leggibili.</div>
+    <tr><th>Perimeter</th><td>
+      <span class="badge badge-ok">personal library read-only</span>
+      <span class="badge badge-ok">groups read-only by default</span>
+      {% for g in scope.writable_groups %}<span class="badge badge-write">writes to {{ g }}</span>{% endfor %}
+      <div class="small muted mt">{{ scope.readable_groups|length }} readable groups.</div>
     </td></tr>
     {% endif %}
   </table>
   <form method="post" action="/profile/zotero/forget" class="inline">
-    <button class="btn btn-ghost btn-sm" type="submit">Dimentica questa chiave</button>
+    <button class="btn btn-ghost btn-sm" type="submit">Forget this key</button>
   </form>
   <p class="small muted mt">
-    Dimenticarla qui non la revoca: la revoca si fa su zotero.org, ed è quella
-    che conta se la chiave è uscita.
+    Forgetting it here does not revoke it. Revocation happens on zotero.org, and
+    that is the one that counts if the key has leaked.
   </p>
   {% endif %}
 
   <form method="post" action="/profile/zotero" class="inline-form mt">
-    <input name="api_key" placeholder="{{ 'Sostituisci la chiave' if cred else 'Incolla la chiave Zotero' }}" required autocomplete="off">
-    <button class="btn btn-primary" type="submit">Verifica e salva</button>
+    <input name="api_key" placeholder="{{ 'Replace the key' if cred else 'Paste your Zotero key' }}" required autocomplete="off">
+    <button class="btn btn-primary" type="submit">Verify and save</button>
   </form>
   <details class="mt">
-    <summary class="small muted">Che permessi darle</summary>
-    <pre class="small">Personal Library : library access, NIENTE write, NIENTE files
-All Groups       : Read Only
-&lt;gruppo di deposito&gt; : Read/Write   ← unica eccezione</pre>
+    <summary class="small muted">What permissions to give it</summary>
+    <pre class="small">Personal Library  : library access, NO write, NO files
+All Groups        : Read Only
+&lt;deposit group&gt;   : Read/Write   ← the only exception</pre>
     <p class="small muted">
-      L'ordine conta: il default nega e l'eccezione è una sola, esplicita. Se
-      «All Groups» è su Read/Write, i permessi ristretti che vedi sui gruppi
-      attuali sono eccezioni a un default permissivo, e ogni gruppo futuro
-      nascerà scrivibile.
+      The order is the point: the default denies and the exception is a single
+      explicit one. If “All Groups” is set to Read/Write, the narrow permissions
+      you see on today's groups are exceptions to a permissive default — and
+      every future group will be born writable.
     </p>
   </details>
 </div>
 
-{# ── chiavi MCP ────────────────────────────────────────────────────────── #}
+{# ── MCP keys ─────────────────────────────────────────────────────────── #}
 <div class="card">
-  <h2>Chiavi MCP</h2>
+  <h2>MCP keys</h2>
   <p class="small muted">
-    Una chiave permette a un modello di usare catena da dentro una conversazione.
-    Porta <strong>la tua</strong> identità, e quindi la portata della tua chiave
-    Zotero: né più né meno. Revocala e la portata sparisce con lei.
+    A key lets a model use catena from inside a conversation. It carries
+    <strong>your</strong> identity, and therefore the reach of your Zotero key:
+    no more, no less. Revoke it and the reach goes with it.
   </p>
   <table class="table">
-    <thead><tr><th>Nome</th><th>Chiave</th><th>Ultimo uso</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Key</th><th>Last used</th><th></th></tr></thead>
     <tbody>
       {% for k in keys %}
       <tr class="{{ '' if k.active else 'revoked' }}">
         <td>{{ k.name }}</td>
-        <td><code class="key">{{ k.key if k.active else '— revocata —' }}</code></td>
-        <td class="muted small">{{ k.last_used_at.strftime('%d/%m/%Y') if k.last_used_at else 'mai' }}</td>
+        <td><code class="key">{{ k.key if k.active else '— revoked —' }}</code></td>
+        <td class="muted small">{{ k.last_used_at.strftime('%d %b %Y') if k.last_used_at else 'never' }}</td>
         <td class="ta-right">
           {% if k.active %}
           <form method="post" action="/profile/keys/{{ k.id }}/revoke" class="inline">
-            <button class="btn btn-ghost btn-sm" type="submit">Revoca</button>
+            <button class="btn btn-ghost btn-sm" type="submit">Revoke</button>
           </form>
           {% endif %}
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="4" class="muted small">Nessuna chiave.</td></tr>
+      <tr><td colspan="4" class="muted small">No keys yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>
   <form method="post" action="/profile/keys" class="inline-form">
-    <input name="name" placeholder="A cosa serve (es. Claude Code)" required>
-    <button class="btn btn-primary" type="submit">Nuova chiave</button>
+    <input name="name" placeholder="What is it for (e.g. Claude Code)" required>
+    <button class="btn btn-primary" type="submit">New key</button>
   </form>
 
   {% if keys and keys[0].active %}
-  <h3 class="small">Come collegarsi</h3>
+  <h3 class="small">How to connect</h3>
   <p class="small muted">
     Endpoint <code>{{ public_url }}/mcp</code>, header <code>X-API-Key</code>.
-    Per i client che non sanno mandare header, la stessa chiave viaggia nel path:
+    For clients that cannot send custom headers, the same key travels in the path:
   </p>
   <p><code class="key">{{ public_url }}/mcp/k/{{ keys[0].key }}</code></p>
   <p class="small muted">
-    Quell'URL <em>è</em> la credenziale, quindi va trattato come tale: finisce
-    nei log di accesso. Una chiave per client, e si revoca da sola.
+    That URL <em>is</em> the credential, so treat it like one: it ends up in
+    access logs. Use one key per client, and revoke it on its own.
   </p>
   {% endif %}
 </div>
 
+{% if not gateway %}
 <div class="card">
-  <h2>Cambia password</h2>
+  <h2>Change password</h2>
   <form method="post" action="/profile/password">
-    <label>Password attuale
+    <label>Current password
       <input type="password" name="current" required autocomplete="current-password">
     </label>
-    <label>Nuova password
+    <label>New password
       <input type="password" name="new" required autocomplete="new-password">
     </label>
-    <button class="btn btn-primary" type="submit">Aggiorna</button>
+    <button class="btn btn-primary" type="submit">Update</button>
   </form>
 </div>
+{% endif %}
 {% endblock %}

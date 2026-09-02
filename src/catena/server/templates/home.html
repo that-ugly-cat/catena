@@ -1,37 +1,37 @@
 {% extends "base.html" %}
-{% block title %}Binding — catena{% endblock %}
+{% block title %}Bindings — catena{% endblock %}
 {% block body %}
-<h1>Binding</h1>
+<h1>Bindings</h1>
 
 {% if not cred %}
-<div class="verdict verdict-larga">
-  <strong>Manca la chiave Zotero.</strong>
-  <p class="small">catena non ha credenziali proprie: senza la tua chiave non
-  vede nessuna libreria. Si configura dal <a href="/profile">profilo</a>.</p>
+<div class="verdict verdict-wide">
+  <strong>No Zotero key yet.</strong>
+  <p class="small">catena has no credentials of its own: without your key it
+  sees no library at all. Set one up in your <a href="/profile">profile</a>.</p>
 </div>
 {% endif %}
 
 <p class="small muted">
-  Un paper, una collezione. Un binding legge dalla libreria dove vivono le
-  reference del paper e deposita in quella su cui la chiave può scrivere: sono
-  quasi sempre due posti diversi, ed è normale.
+  One paper, one collection. A binding reads from the library where the paper's
+  references live and deposits into the one your key can write to: those are
+  almost always two different places, and that is normal.
 </p>
 
 <table class="table">
-  <thead><tr><th>Etichetta</th><th>Legge da</th><th>Deposita in</th><th>Stile</th></tr></thead>
+  <thead><tr><th>Label</th><th>Reads from</th><th>Deposits into</th><th>Style</th></tr></thead>
   <tbody>
     {% for b in bindings %}
     <tr>
       <td>{{ b.label }}</td>
       <td class="small"><code>{{ b.source_library }}</code>{% if b.source_collection_key %} <span class="muted">/{{ b.source_collection_key }}</span>{% endif %}</td>
       <td class="small"><code>{{ b.deposit_library }}</code>
-        {% if b.one_legged %}<span class="pill pill-ok">una gamba</span>{% endif %}</td>
+        {% if b.one_legged %}<span class="badge badge-ok">single leg</span>{% endif %}</td>
       <td class="small">{{ b.style_name }}</td>
     </tr>
     {% else %}
     <tr><td colspan="4" class="muted small">
-      Nessun binding. Si creano dalla conversazione, con <code>create_binding</code>:
-      questa pagina li mostra, non li fabbrica.
+      No bindings. They are created from the conversation, with
+      <code>create_binding</code>: this page shows them, it does not make them.
     </td></tr>
     {% endfor %}
   </tbody>

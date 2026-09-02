@@ -1,17 +1,19 @@
 """
-Lo stato del server: persone, credenziali, legami.
+Server state: people, credentials, bindings.
 
-Due tipi di chiave vivono qui e non vanno confusi.
+Two kinds of key live here and they must not be confused.
 
-`ApiKey` e' una credenziale **verso** catena: la usa un client MCP per farsi
-riconoscere, e porta l'identita' di una persona. `ZoteroCredential` e' una
-credenziale **di** una persona verso Zotero: catena la usa per suo conto. La
-prima si revoca da qui e sparisce; la seconda si revoca su zotero.org, e qui si
-puo' solo dimenticare.
+`ApiKey` is a credential **towards** catena: an MCP client presents it to be
+recognised, and it carries a person's identity. `ZoteroCredential` is a person's
+credential **towards Zotero**, which catena uses on their behalf. The first is
+revoked here and it is gone; the second is revoked on zotero.org, and all we can
+do here is forget it.
 
-Il modello dei binding segue SPEC §3: due gambe, una da cui si legge e una su cui
-si scrive, e un `ingest_event` che e' insieme registro e chiave di idempotenza
-(§9.1).
+The binding model follows SPEC §3: two legs, one read from and one written to,
+plus an `ingest_event` that is at once a log and the idempotency key (§9.1).
+
+Migrations are additive and run at startup, as in the rest of the borant tools:
+ALTER TABLE for each new column, never a rename and never a drop.
 """
 
 from __future__ import annotations
@@ -30,6 +32,8 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
+    inspect,
+    text,
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
@@ -62,16 +66,19 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     is_admin = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
+    # Borant ID subject, set when a profile arrives through the gate. Lookup is
+    # by this and never by email: a typo in the gate's admin panel must not be
+    # able to hand one person another person's Zotero credential.
+    borant_sub = Column(String, unique=True, nullable=True)
     created_at = Column(DateTime, default=utcnow)
 
 
 class ApiKey(Base):
-    """Credenziale MCP, e deliberatamente credenziale *di una persona*.
+    """An MCP credential, and deliberately a credential *of a person*.
 
-    Ogni chiamata MCP si risolve in un utente, e da li' in poi vale quello che
-    vale per lui: le librerie che la sua chiave Zotero vede, e nient'altro.
-    Senza questo legame la superficie MCP sarebbe un buco dritto attraverso il
-    modello di accesso.
+    Every MCP call resolves to a user, and from there the reach is whatever that
+    user's Zotero key allows — nothing more. Without the binding to a person the
+    MCP surface would be a hole straight through the access model.
     """
 
     __tablename__ = "api_keys"
@@ -92,18 +99,18 @@ class ApiKey(Base):
 
 
 class ZoteroCredential(Base):
-    """La chiave Zotero di una persona, piu' il verdetto sul suo perimetro.
+    """A person's Zotero key, plus the verdict on its perimeter.
 
-    Il campo `key` e' un segreto di terzi conservato in chiaro: chi legge il
-    database legge la chiave. E' accettabile solo perche' il perimetro e'
-    ristretto in ingresso (§2.2) — una chiave che non puo' scrivere sulla
-    libreria personale ne' su gruppi arbitrari fa pochi danni se esce. Non e'
-    una scusa per lasciarla in giro: l'interfaccia non la mostra mai per intero
-    e non la rimanda mai al browser.
+    `key` is a third party's secret held in clear text: whoever reads the
+    database reads the key. That is only acceptable because the perimeter is
+    narrowed on the way in (SPEC §2.2) — a key that can write neither to the
+    personal library nor to arbitrary groups does limited damage if it escapes.
+    It is not an excuse to leave it lying around: the interface never shows it
+    whole and never sends it back to the browser.
 
-    `scope_json` e' la risposta di GET /keys/current al momento del
-    salvataggio, tenuta per poter spiegare *perche'* una chiave e' stata
-    accettata o rifiutata, anche mesi dopo.
+    `scope_json` is the GET /keys/current response as it stood when the key was
+    saved, kept so the app can still explain *why* a key was accepted or
+    refused months later.
     """
 
     __tablename__ = "zotero_credentials"
@@ -113,7 +120,7 @@ class ZoteroCredential(Base):
     zotero_user_id = Column(String, nullable=True)
     zotero_username = Column(String, nullable=True)
     scope_json = Column(Text, nullable=True)
-    verdict = Column(String, nullable=False)  # ok | stretta | larga
+    verdict = Column(String, nullable=False)  # ok | narrow | wide
     checked_at = Column(DateTime, default=utcnow)
 
     user = relationship("User")
@@ -124,7 +131,7 @@ class ZoteroCredential(Base):
 
 
 class Binding(Base):
-    """Un paper = una collezione. Due gambe: si legge da una, si scrive sull'altra."""
+    """One paper, one collection. Two legs: read from one, write to the other."""
 
     __tablename__ = "bindings"
     __table_args__ = (UniqueConstraint("user_id", "label"),)
@@ -153,12 +160,12 @@ class Binding(Base):
 
 
 class IngestEvent(Base):
-    """Registro delle scritture verso Zotero, e chiave di idempotenza (§9.1).
+    """The log of writes towards Zotero, and the idempotency key (SPEC §9.1).
 
-    Il vincolo di unicita' e' la protezione vera contro i doppioni da retry:
-    pyzotero manda un Zotero-Write-Token nuovo a ogni invocazione, quindi
-    protegge i propri tentativi interni ma non una seconda chiamata del
-    chiamante. Questa riga si', perche' vive al livello dove il retry accade.
+    The unique constraint is the real protection against duplicates on retry.
+    pyzotero sends a fresh Zotero-Write-Token on every invocation, so it covers
+    its own internal retries but not a second call from the caller. This row
+    does, because it lives at the level where that retry happens.
     """
 
     __tablename__ = "ingest_events"
@@ -178,8 +185,26 @@ class IngestEvent(Base):
     binding = relationship("Binding")
 
 
+# Columns added after the first release. Additive only: the migration runs an
+# ALTER TABLE when the column is missing and does nothing when it is there.
+_ADDED_COLUMNS = {
+    "users": {"borant_sub": "VARCHAR"},
+}
+
+
+def _migrate() -> None:
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table, columns in _ADDED_COLUMNS.items():
+            if not insp.has_table(table):
+                continue
+            existing = {c["name"] for c in insp.get_columns(table)}
+            for name, ddl in columns.items():
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+
+
 def init_db() -> None:
-    """Migrazioni additive, come nel resto degli strumenti di casa: girano da
-    sole all'avvio, non rinominano e non droppano niente."""
     os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
     Base.metadata.create_all(engine)
+    _migrate()

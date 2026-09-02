@@ -1,19 +1,19 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{% block title %}catena{% endblock %}</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=1">
+  <link rel="stylesheet" href="/static/css/style.css?v=2">
 </head>
 <body>
 {% if user %}
 <header class="topbar">
   <a class="brand" href="/">catena</a>
   <nav>
-    <a href="/">Binding</a>
-    <a href="/profile">Profilo</a>
-    <a href="/logout">Esci</a>
+    <a href="/">Bindings</a>
+    <a href="/profile">Profile</a>
+    <a href="/logout">Sign out</a>
   </nav>
 </header>
 {% endif %}

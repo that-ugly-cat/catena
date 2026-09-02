@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Crea il primo utente. Uso: python seed.py <email> "<nome>" <password>"""
+"""Create the first user. Usage: python seed.py <email> "<name>" <password>"""
 import sys
 sys.path.insert(0, "src")
 
@@ -15,12 +15,12 @@ def main() -> int:
     init_db()
     db = SessionLocal()
     if db.query(User).filter(User.email == email).first():
-        print(f"{email} esiste già.", file=sys.stderr)
+        print(f"{email} already exists.", file=sys.stderr)
         return 1
     db.add(User(email=email, name=name, password_hash=hash_password(password),
                 is_admin=True, is_active=True))
     db.commit()
-    print(f"creato {email}")
+    print(f"created {email}")
     return 0
 
 

@@ -1,18 +1,18 @@
 """
-Audit di un manoscritto — SPEC §13.3.
+Auditing a manuscript — SPEC §13.3.
 
-Legge un .docx con campi Zotero e dice cosa non va. Non scrive niente, da
-nessuna parte, e non ha bisogno di rete ne' di credenziali: tutto quello che
-controlla e' deducibile dal file. E' il primo pezzo di `catena` per questo
-motivo — vale gia' da solo, gira su documenti scritti da altri, e serve a
-validare `catena` stessa quando ci sara' il resto.
+Reads a .docx with Zotero fields and says what is wrong with it. It writes
+nothing anywhere, and it needs neither network nor credentials: everything it
+checks can be worked out from the file. That is why it is catena's first piece —
+it is already worth something on its own, it runs on documents written by other
+people, and it is how catena will check itself once the rest exists.
 
-Il controllo che conta di piu' e' il surrogato duplicato. Quando un URI non
-risolve, Zotero costruisce un item surrogato distinto (verificato in Word, SPEC
-§12.2 caso 5): lo stesso paper raggiunto da due URI diversi prende due numeri e
-due voci di bibliografia. In Vancouver e' un `(4)` di troppo che nessuno nota;
-in APA diventa un `2008a`/`2008b` che sembra un secondo lavoro dello stesso
-autore.
+The check that matters most is the duplicate surrogate. When a URI does not
+resolve, Zotero builds a distinct surrogate item (verified in Word, SPEC §12.2
+case 5): the same paper reached through two different URIs takes two numbers and
+two bibliography entries. In Vancouver that is one stray `(4)` nobody notices;
+in APA it becomes a `2008a`/`2008b` that looks like a second paper by the same
+author.
 """
 
 from __future__ import annotations
@@ -30,11 +30,11 @@ from .fields import (
 )
 from .ooxml import Document
 
-# Gravita': errore = la bibliografia risultante e' sbagliata;
-# avviso = fragile o non portabile; nota = da sapere, non da correggere.
-ERRORE, AVVISO, NOTA = "errore", "avviso", "nota"
+# Severity: error = the resulting bibliography is wrong; warning = fragile or
+# not portable; note = worth knowing, not worth fixing.
+ERROR, WARNING, NOTE = "error", "warning", "note"
 
-ORDER = {ERRORE: 0, AVVISO: 1, NOTA: 2}
+ORDER = {ERROR: 0, WARNING: 1, NOTE: 2}
 
 
 @dataclass
@@ -59,7 +59,7 @@ class Report:
 
     @property
     def clean(self) -> bool:
-        return not any(f.level == ERRORE for f in self.findings)
+        return not any(f.level == ERROR for f in self.findings)
 
     def by_level(self, level: str) -> list[Finding]:
         return [f for f in self.findings if f.level == level]
@@ -74,11 +74,11 @@ def audit(path: str | Path) -> Report:
     if not cits:
         found.append(
             Finding(
-                NOTA,
-                "nessun-campo",
-                "il documento non contiene campi Zotero",
-                "tutte le citazioni, se ci sono, sono testo battuto a mano: "
-                "e' il caso della SPEC §13.1, non un difetto",
+                NOTE,
+                "no-fields",
+                "the document has no Zotero fields",
+                "every citation in it, if any, is hand-typed text: that is the "
+                "case in SPEC §13.1, not a defect",
             )
         )
 
@@ -99,17 +99,17 @@ def audit(path: str | Path) -> Report:
     )
 
 
-# --- controlli ---------------------------------------------------------------
+# --- checks ------------------------------------------------------------------
 
 
 def _check_surrogate_duplicates(cits: list[Citation], out: list[Finding]) -> None:
-    """Stesso paper sotto URI diversi: due voci in bibliografia (SPEC §3.2)."""
+    """Same paper under different URIs: two bibliography entries (SPEC §3.2)."""
     by_sig: dict[str, set[str]] = defaultdict(set)
     labels: dict[str, str] = {}
     for c in cits:
         for it in c.items:
             sig = it.signature()
-            by_sig[sig].add("|".join(sorted(it.uris)) or "<senza uri>")
+            by_sig[sig].add("|".join(sorted(it.uris)) or "<no uri>")
             labels.setdefault(
                 sig, f"{it.first_author or '?'} {it.year or '?'} — {it.title[:60]}"
             )
@@ -117,12 +117,12 @@ def _check_surrogate_duplicates(cits: list[Citation], out: list[Finding]) -> Non
         if len(uris) > 1:
             out.append(
                 Finding(
-                    ERRORE,
-                    "surrogato-duplicato",
-                    f"lo stesso paper compare sotto {len(uris)} URI diversi: {labels[sig]}",
-                    "produce due voci di bibliografia e due numeri; in APA diventa "
-                    "una disambiguazione per anno (2008a/2008b) che non esiste.\n    "
-                    + "\n    ".join(sorted(uris)),
+                    ERROR,
+                    "duplicate-surrogate",
+                    f"the same paper appears under {len(uris)} different URIs: {labels[sig]}",
+                    "this produces two bibliography entries and two numbers; in "
+                    "APA it becomes a year disambiguation (2008a/2008b) that does "
+                    "not exist.\n    " + "\n    ".join(sorted(uris)),
                 )
             )
 
@@ -133,29 +133,29 @@ def _check_uris(cits: list[Citation], out: list[Finding]) -> None:
     for c in cits:
         for it in c.items:
             if not it.uris:
-                missing.append(f"citazione #{c.order + 1}")
+                missing.append(f"citation #{c.order + 1}")
             elif it.is_local_uri:
                 local.append(it.library or "?")
     if missing:
         out.append(
             Finding(
-                ERRORE,
-                "uri-assente",
-                f"{len(missing)} item senza URI",
-                "Zotero risolve per URI; senza, ricade sull'id numerico locale e "
-                "puo' riagganciare l'item sbagliato (SPEC §7.7)",
+                ERROR,
+                "missing-uri",
+                f"{len(missing)} items have no URI",
+                "Zotero resolves by URI; without one it falls back to the local "
+                "numeric id and can relink to the wrong item (SPEC §7.7)",
             )
         )
     if local:
         profiles = sorted(set(local))
         out.append(
             Finding(
-                AVVISO,
-                "uri-locale",
-                f"{len(local)} item puntano a un profilo Zotero locale",
-                "questi URI risolvono su una sola macchina al mondo: per i coautori "
-                "gli item sono orfani e si formattano solo dai dati incorporati "
-                f"(SPEC §7.2). Profili: {', '.join(profiles)}",
+                WARNING,
+                "local-uri",
+                f"{len(local)} items point at a local Zotero profile",
+                "these URIs resolve on exactly one machine in the world: to "
+                "co-authors the items are orphans and only format from the "
+                f"embedded data (SPEC §7.2). Profiles: {', '.join(profiles)}",
             )
         )
 
@@ -177,25 +177,25 @@ def _check_metadata(cits: list[Citation], out: list[Finding]) -> None:
     if no_data:
         out.append(
             Finding(
-                ERRORE,
-                "itemdata-assente",
-                f"{len(no_data)} item senza dati incorporati",
-                "se l'URI non risolve non c'e' nulla su cui ricadere: Zotero apre "
-                "un dialogo di riselezione o solleva un errore",
+                ERROR,
+                "missing-itemdata",
+                f"{len(no_data)} items carry no embedded data",
+                "if the URI fails to resolve there is nothing to fall back on: "
+                "Zotero opens a reselect dialog or raises an error",
             )
         )
     if bad_doi:
         out.append(
             Finding(
-                AVVISO,
-                "doi-malformato",
-                f"{len(bad_doi)} item con un DOI che non e' un DOI",
+                WARNING,
+                "malformed-doi",
+                f"{len(bad_doi)} items have a DOI that is not a DOI",
                 "\n    ".join(bad_doi[:10]),
             )
         )
     if no_title:
         out.append(
-            Finding(AVVISO, "titolo-assente", f"{len(no_title)} item senza titolo")
+            Finding(WARNING, "missing-title", f"{len(no_title)} items have no title")
         )
 
 
@@ -205,10 +205,10 @@ def _check_citation_ids(cits: list[Citation], out: list[Finding]) -> None:
     if dupes:
         out.append(
             Finding(
-                AVVISO,
-                "citationid-duplicato",
-                f"{len(dupes)} citationID compaiono piu' di una volta",
-                "devono essere unici per occorrenza, non per item (SPEC §7.1): "
+                WARNING,
+                "duplicate-citationid",
+                f"{len(dupes)} citationIDs appear more than once",
+                "they must be unique per occurrence, not per item (SPEC §7.1): "
                 f"{', '.join(dupes[:8])}",
             )
         )
@@ -219,11 +219,11 @@ def _check_note_styles(cits: list[Citation], out: list[Finding]) -> None:
     if notes:
         out.append(
             Finding(
-                NOTA,
-                "stile-con-note",
-                f"{len(notes)} citazioni hanno noteIndex diverso da zero",
-                "il documento usa uno stile con note a pie' di pagina: `catena` "
-                "non lo gestisce ancora e lo rifiuta esplicitamente (SPEC §7.6)",
+                NOTE,
+                "note-based-style",
+                f"{len(notes)} citations have a non-zero noteIndex",
+                "the document uses a footnote style: catena does not handle "
+                "those yet and refuses them explicitly (SPEC §7.6)",
             )
         )
 
@@ -232,45 +232,46 @@ def _check_document_level(doc, cits, prefs, out: list[Finding]) -> None:
     if cits and not prefs:
         out.append(
             Finding(
-                ERRORE,
-                "prefs-assenti",
-                "ci sono campi Zotero ma nessuna proprieta' ZOTERO_PREF",
-                "senza le preferenze di documento Zotero non sa con che stile "
-                "formattare, e il cambio di stile da Word non funziona (SPEC §7.4)",
+                ERROR,
+                "missing-prefs",
+                "there are Zotero fields but no ZOTERO_PREF property",
+                "without the document preferences Zotero does not know which "
+                "style to format with, and changing style from Word does not "
+                "work (SPEC §7.4)",
             )
         )
     if prefs and prefs.field_type and prefs.field_type != "Field":
         out.append(
             Finding(
-                AVVISO,
-                "fieldtype",
-                f"fieldType = {prefs.field_type!r}, atteso 'Field'",
-                "l'iniettore lavora solo su campi Word veri",
+                WARNING,
+                "field-type",
+                f"fieldType is {prefs.field_type!r}, expected 'Field'",
+                "the injector only works on real Word fields",
             )
         )
     if cits and not has_bibliography(doc):
         out.append(
             Finding(
-                AVVISO,
-                "bibliografia-assente",
-                "ci sono citazioni ma nessun campo bibliografia",
-                "voluto in un abstract o in una lettera; sospetto in un manoscritto",
+                WARNING,
+                "missing-bibliography",
+                "there are citations but no bibliography field",
+                "deliberate in an abstract or a letter; suspicious in a manuscript",
             )
         )
     authors = doc.revision_authors
     if authors:
         out.append(
             Finding(
-                NOTA,
-                "revisioni-attive",
-                f"il documento ha revisioni tracciate di {len(authors)} autori",
-                "un'iniezione deve conservare la marcatura e la sua attribuzione "
-                f"(SPEC §8.3): {', '.join(authors)}",
+                NOTE,
+                "tracked-changes",
+                f"the document carries tracked changes from {len(authors)} authors",
+                "an injection has to preserve the revision markup and its "
+                f"attribution (SPEC §8.3): {', '.join(authors)}",
             )
         )
 
 
-# --- resa a schermo ----------------------------------------------------------
+# --- rendering ---------------------------------------------------------------
 
 
 def render(report: Report) -> str:
@@ -278,25 +279,27 @@ def render(report: Report) -> str:
     lines = [
         f"{report.path.name}",
         "",
-        f"  paragrafi {c['paragrafi']}   caratteri {c['caratteri']}   "
-        f"campi Zotero {c['campi_zotero']}   bibliografia {c['campi_bibliografia']}",
-        f"  revisioni +{c['revisioni_inserite']} -{c['revisioni_cancellate']}   "
-        f"commenti {c['commenti']}   note {c['note_a_pie']}",
+        f"  paragraphs {c['paragraphs']}   characters {c['characters']}   "
+        f"Zotero fields {c['zotero_fields']}   bibliography {c['bibliography_fields']}",
+        f"  revisions +{c['insertions']} -{c['deletions']}   "
+        f"comments {c['comments']}   footnotes {c['footnotes']}",
     ]
     if report.style:
-        lines.append(f"  stile {report.style}")
+        lines.append(f"  style {report.style}")
     lines.append("")
 
     if not report.findings:
-        lines.append("  niente da segnalare.")
+        lines.append("  nothing to report.")
         return "\n".join(lines)
 
-    for level in (ERRORE, AVVISO, NOTA):
+    for level in (ERROR, WARNING, NOTE):
         for f in report.by_level(level):
             lines.append("  " + str(f).replace("\n", "\n  "))
             lines.append("")
 
-    n_err = len(report.by_level(ERRORE))
-    n_warn = len(report.by_level(AVVISO))
-    lines.append(f"  {n_err} errori, {n_warn} avvisi, {len(report.by_level(NOTA))} note")
+    n_err = len(report.by_level(ERROR))
+    n_warn = len(report.by_level(WARNING))
+    lines.append(
+        f"  {n_err} errors, {n_warn} warnings, {len(report.by_level(NOTE))} notes"
+    )
     return "\n".join(lines)

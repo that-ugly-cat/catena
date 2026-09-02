@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 """
-build_fixture.py — genera il .docx di prova per lo spike §7 dello SPEC.
+build_fixture.py — builds the test .docx for the spike of SPEC §7.
 
-Costruisce a mano l'OOXML minimo di un documento Word contenente campi Zotero
-veri, per verificare in Word (con Zotero attivo) che cosa succede al Refresh e
-al cambio di stile. Non usa python-docx: il punto è controllare byte per byte
-la forma del campo, e una libreria di alto livello la nasconderebbe.
+It assembles by hand the minimal OOXML of a Word document carrying real Zotero
+fields, so that Word (with Zotero running) can be asked what happens on Refresh
+and on a style change. It deliberately avoids python-docx: the point is to
+control the shape of the field byte by byte, and a high-level library would hide
+exactly that.
 
-Casi coperti, uno per paragrafo:
+The cases, one per paragraph:
 
-  1. uris corretti, id stringa che rispecchia itemData.id
-  2. uris corretti, campo id ASSENTE del tutto
-  3. ripetizione dell'item 1        -> in Vancouver deve tornare lo stesso numero
-  4. citazione multipla (item 2+3)  -> deve produrre un raggruppamento tipo (2,3)
-  5. uris che puntano a una key inesistente -> deve ricadere su itemData incorporato
+  1. correct uris, id as a string mirroring itemData.id
+  2. correct uris, id field ABSENT altogether
+  3. a repeat of item 1            -> in Vancouver, the same number as case 1
+  4. multiple citation (items 2+3) -> a grouped form like (2,3)
+  5. uris pointing at a key that does not exist -> falls back to embedded data
 
-Uso:  uv run build_fixture.py fixture_items.json catena-spike.docx
+Usage:  uv run build_fixture.py fixture_items.json catena-spike.docx
 """
 
 import json
@@ -29,8 +30,8 @@ STYLE = "http://www.zotero.org/styles/vancouver"
 LOCALE = "en-GB"
 SESSION_ID = "cAtEnA01"
 
-# 8 caratteri, uno per occorrenza: nel manoscritto reale i citationID sono
-# unici per occorrenza e non per item (SPEC §7.1).
+# 8 characters, one per occurrence: in the real manuscript citationIDs are
+# unique per occurrence and not per item (SPEC §7.1).
 CITATION_IDS = ["spKe0001", "spKe0002", "spKe0003", "spKe0004", "spKe0005"]
 
 
@@ -39,7 +40,7 @@ def uri(library: str, key: str) -> str:
 
 
 def citation_json(citation_id: str, entries: list[dict]) -> str:
-    """entries: [{'item': <fixture item>, 'id': <valore o None>, 'uris': [...]}]"""
+    """entries: [{'item': <fixture item>, 'id': <value or None>, 'uris': [...]}]"""
     items = []
     for e in entries:
         ci: dict = {}
@@ -51,8 +52,9 @@ def citation_json(citation_id: str, entries: list[dict]) -> str:
     obj = {
         "citationID": citation_id,
         "properties": {
-            # lasciati vuoti di proposito: se il Refresh li riempie
-            # correttamente, il pre-render della SPEC §7.5 e' opzionale
+            # Left empty on purpose: if Refresh fills these in correctly, the
+            # pre-rendering of SPEC §7.5 is an optional nicety rather than a
+            # requirement.
             "formattedCitation": "",
             "plainCitation": "",
             "noteIndex": 0,
@@ -64,15 +66,13 @@ def citation_json(citation_id: str, entries: list[dict]) -> str:
 
 
 def field_runs(instr: str, result_text: str) -> str:
-    """Un campo Word completo: begin / instrText / separate / risultato / end.
+    """A complete Word field: begin / instrText / separate / result / end.
 
-    instrText va spezzato: Word tollera runs lunghi, ma Zotero stesso spezza e
-    conviene esercitare lo stesso percorso.
+    instrText is split across runs: Word tolerates long ones, but Zotero itself
+    splits, and it is worth exercising the same path.
     """
     chunks = [instr[i : i + 1000] for i in range(0, len(instr), 1000)]
-    parts = [
-        '<w:r><w:fldChar w:fldCharType="begin"/></w:r>',
-    ]
+    parts = ['<w:r><w:fldChar w:fldCharType="begin"/></w:r>']
     for c in chunks:
         parts.append(
             f'<w:r><w:instrText xml:space="preserve">{escape(c)}</w:instrText></w:r>'
@@ -104,20 +104,20 @@ def build_document(items: list[dict]) -> str:
     a, b, c = items[0], items[1], items[2]
     body = []
 
-    body.append(heading("catena — spike §7. Aprire con Zotero attivo, poi Refresh."))
+    body.append(heading("catena — spike §7. Open with Zotero running, then Refresh."))
     body.append(
         para(
-            "Ogni paragrafo prova un caso. Dopo il Refresh, controllare il numero "
-            "prodotto e se Zotero segnala item mancanti. Poi Document Preferences "
-            "-> APA, e verificare che tutti i casi si riformattino."
+            "Each paragraph tests one case. After the Refresh, check the number "
+            "produced and whether Zotero reports any missing item. Then Document "
+            "Preferences -> APA, and check that every case reformats."
         )
     )
 
-    # 1. uris corretti + id stringa
-    body.append(heading("1. uris corretti, id = stringa che rispecchia itemData.id"))
+    # 1. correct uris + string id
+    body.append(heading("1. correct uris, id = string mirroring itemData.id"))
     body.append(
         para(
-            "Primo item citato normalmente ",
+            "First item, cited normally ",
             field_runs(
                 citation_json(
                     CITATION_IDS[0],
@@ -125,15 +125,15 @@ def build_document(items: list[dict]) -> str:
                 ),
                 "[1]",
             ),
-            ". Atteso: (1).",
+            ". Expected: (1).",
         )
     )
 
-    # 2. uris corretti, id assente
-    body.append(heading("2. uris corretti, campo id ASSENTE"))
+    # 2. correct uris, id absent
+    body.append(heading("2. correct uris, id field ABSENT"))
     body.append(
         para(
-            "Secondo item senza id ",
+            "Second item, with no id ",
             field_runs(
                 citation_json(
                     CITATION_IDS[1],
@@ -141,16 +141,16 @@ def build_document(items: list[dict]) -> str:
                 ),
                 "[2]",
             ),
-            ". Atteso: (2), nessun prompt. Se Zotero chiede di riselezionare, "
-            "l'id non e' opzionale.",
+            ". Expected: (2), and no prompt. If Zotero asks to reselect, the id "
+            "is not optional after all.",
         )
     )
 
-    # 3. ripetizione del primo
-    body.append(heading("3. ripetizione dell'item 1"))
+    # 3. a repeat of the first
+    body.append(heading("3. a repeat of item 1"))
     body.append(
         para(
-            "Di nuovo il primo item ",
+            "The first item again ",
             field_runs(
                 citation_json(
                     CITATION_IDS[2],
@@ -158,15 +158,15 @@ def build_document(items: list[dict]) -> str:
                 ),
                 "[1]",
             ),
-            ". Atteso: (1), lo stesso numero del caso 1.",
+            ". Expected: (1), the same number as case 1.",
         )
     )
 
-    # 4. citazione multipla
-    body.append(heading("4. citazione multipla (item 2 + item 3)"))
+    # 4. multiple citation
+    body.append(heading("4. multiple citation (item 2 + item 3)"))
     body.append(
         para(
-            "Due item in un campo solo ",
+            "Two items in a single field ",
             field_runs(
                 citation_json(
                     CITATION_IDS[3],
@@ -177,15 +177,15 @@ def build_document(items: list[dict]) -> str:
                 ),
                 "[2,3]",
             ),
-            ". Atteso: (2,3) — raggruppati, non due campi separati.",
+            ". Expected: (2,3) — grouped, not two separate fields.",
         )
     )
 
-    # 5. uri inesistente -> fallback su itemData
-    body.append(heading("5. uris che non risolvono, itemData presente"))
+    # 5. non-resolving uri -> fallback to embedded data
+    body.append(heading("5. uris that do not resolve, itemData present"))
     body.append(
         para(
-            "Item con URI rotto ",
+            "Item with a broken URI ",
             field_runs(
                 citation_json(
                     CITATION_IDS[4],
@@ -199,19 +199,19 @@ def build_document(items: list[dict]) -> str:
                 ),
                 "[4]",
             ),
-            ". Atteso: si formatta lo stesso usando i dati incorporati, senza "
-            "prompt. Se compare una finestra 'item non trovato', il fallback "
-            "richiede qualcosa in piu'.",
+            ". Expected: it formats anyway from the embedded data, with no "
+            "prompt. If an 'item not found' dialog appears, the fallback needs "
+            "something more.",
         )
     )
 
-    body.append(heading("Bibliografia"))
+    body.append(heading("Bibliography"))
     body.append(
         para(
             "",
             field_runs(
                 'ADDIN ZOTERO_BIBL {"uncited":[],"omitted":[],"custom":[]} CSL_BIBLIOGRAPHY',
-                "[la bibliografia compare qui dopo il Refresh]",
+                "[the bibliography appears here after the Refresh]",
             ),
         )
     )
@@ -225,11 +225,13 @@ def build_document(items: list[dict]) -> str:
     )
 
 
-def build_custom_props() -> str:
-    """ZOTERO_PREF_1/_2 come proprieta' custom, spezzate a 255 caratteri.
+def build_custom_props() -> tuple[str, int]:
+    """ZOTERO_PREF_1/_2 as custom properties, split at 255 characters.
 
-    Verificato sul manoscritto reale: Word tronca vt:lpwstr a 255, ed e' il
-    motivo per cui Zotero usa due proprieta'.
+    Verified on the real manuscript: Word truncates vt:lpwstr at 255, which is
+    why Zotero uses two properties. The limit applies to the value and not to
+    its XML serialisation, so the raw string is split first and each piece
+    escaped afterwards — never the other way round (SPEC §7.4).
     """
     prefs = (
         '<data data-version="3" zotero-version="7.0.29">'
@@ -243,7 +245,7 @@ def build_custom_props() -> str:
     chunks = [prefs[i : i + 255] for i in range(0, len(prefs), 255)]
     props = []
     for n, ch in enumerate(chunks, start=1):
-        pid = n + 1  # pid parte da 2
+        pid = n + 1  # pid starts at 2
         props.append(
             f'<property fmtid="{{D5CDD505-2E9C-101B-9397-08002B2CF9AE}}" pid="{pid}" '
             f'name="ZOTERO_PREF_{n}"><vt:lpwstr>{escape(ch)}</vt:lpwstr></property>'
@@ -278,7 +280,7 @@ def main() -> int:
 
     items = json.loads(src.read_text(encoding="utf-8"))
     if len(items) < 3:
-        print("servono almeno 3 item nel json di input", file=sys.stderr)
+        print("the input json needs at least 3 items", file=sys.stderr)
         return 1
 
     document = build_document(items)
@@ -290,12 +292,12 @@ def main() -> int:
         z.writestr("word/document.xml", document)
         z.writestr("docProps/custom.xml", custom)
 
-    print(f"scritto {out}")
-    print(f"  campi citazione : 5")
-    print(f"  campo bibl      : 1")
-    print(f"  ZOTERO_PREF     : {n_chunks} proprieta'")
-    print(f"  stile           : {STYLE.rsplit('/', 1)[-1]} ({LOCALE})")
-    print(f"  item usati      : {', '.join(i['key'] for i in items[:3])}")
+    print(f"wrote {out}")
+    print("  citation fields : 5")
+    print("  bibliography    : 1")
+    print(f"  ZOTERO_PREF     : {n_chunks} properties")
+    print(f"  style           : {STYLE.rsplit('/', 1)[-1]} ({LOCALE})")
+    print(f"  items used      : {', '.join(i['key'] for i in items[:3])}")
     return 0
 
 

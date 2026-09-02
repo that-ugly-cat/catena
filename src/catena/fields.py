@@ -1,15 +1,15 @@
 """
-I campi Zotero dentro un documento Word: come si leggono.
+Zotero fields inside a Word document: how to read them.
 
-Formato verificato su un manoscritto reale e riprodotto in un fixture provato in
-Word (SPEC §7 e §12). Le tre forme che ci interessano:
+The format was verified against a real manuscript and reproduced in a fixture
+that was then opened in Word (SPEC §7 and §12). Three shapes matter:
 
-    ADDIN ZOTERO_ITEM CSL_CITATION {…}                       una citazione
-    ADDIN ZOTERO_BIBL {…} CSL_BIBLIOGRAPHY                    la bibliografia
-    docProps/custom.xml -> ZOTERO_PREF_1 / _2                 stile e preferenze
+    ADDIN ZOTERO_ITEM CSL_CITATION {…}                       a citation
+    ADDIN ZOTERO_BIBL {…} CSL_BIBLIOGRAPHY                   the bibliography
+    docProps/custom.xml -> ZOTERO_PREF_1 / _2                style and prefs
 
-Le preferenze non sono un campo: stanno nelle proprieta' custom del pacchetto,
-spezzate a 255 caratteri **non escapati** (SPEC §7.4).
+The preferences are not a field: they live in the package's custom properties,
+split at 255 **unescaped** characters (SPEC §7.4).
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ RE_DOI = re.compile(r"^10\.\d{4,9}/\S+$")
 
 @dataclass
 class CitationItem:
-    """Un item dentro una citazione."""
+    """One item inside a citation."""
 
     uris: list[str]
     item_data: dict
@@ -41,7 +41,7 @@ class CitationItem:
 
     @property
     def library(self) -> str | None:
-        """`groups/123` o `users/456` estratto dal primo URI utile."""
+        """`groups/123` or `users/456`, taken from the first usable URI."""
         for u in self.uris:
             m = re.search(r"zotero\.org/(users/local/[^/]+|users/\d+|groups/\d+)/", u)
             if m:
@@ -58,7 +58,7 @@ class CitationItem:
 
     @property
     def is_local_uri(self) -> bool:
-        """URI legato a un profilo Zotero locale: non risolve altrove (SPEC §7.2)."""
+        """A URI tied to a local Zotero profile: it resolves nowhere else (SPEC §7.2)."""
         lib = self.library
         return bool(lib and lib.startswith("users/local/"))
 
@@ -88,7 +88,7 @@ class CitationItem:
         return None
 
     def signature(self) -> str:
-        """Identita' bibliografica, per riconoscere lo stesso paper sotto URI diversi."""
+        """Bibliographic identity, to spot the same paper under different URIs."""
         if self.doi:
             return "doi:" + self.doi.lower()
         norm = re.sub(r"[^a-z0-9]+", " ", self.title.lower()).strip()
@@ -97,7 +97,7 @@ class CitationItem:
 
 @dataclass
 class Citation:
-    """Un campo ZOTERO_ITEM."""
+    """One ZOTERO_ITEM field."""
 
     citation_id: str | None
     formatted: str
@@ -111,7 +111,7 @@ class Citation:
 
 
 def _decode_after(blob: str, start: int) -> tuple[dict | None, int]:
-    """Decodifica il JSON che comincia a `start`, restituendo (oggetto, fine)."""
+    """Decode the JSON starting at `start`, returning (object, end)."""
     dec = json.JSONDecoder()
     try:
         obj, end = dec.raw_decode(blob[start:])
@@ -121,7 +121,7 @@ def _decode_after(blob: str, start: int) -> tuple[dict | None, int]:
 
 
 def parse_citations(doc: Document) -> list[Citation]:
-    """Tutte le citazioni Zotero del documento, in ordine di comparsa."""
+    """Every Zotero citation in the document, in order of appearance."""
     blob = doc.field_codes
     out: list[Citation] = []
     i = 0
@@ -173,7 +173,7 @@ class DocumentPrefs:
 
 
 def parse_prefs(doc: Document) -> DocumentPrefs | None:
-    """Le ZOTERO_PREF ricomposte dai chunk delle proprieta' custom."""
+    """The ZOTERO_PREF value, reassembled from the custom-property chunks."""
     custom = doc.parts.get(CUSTOM)
     if not custom:
         return None

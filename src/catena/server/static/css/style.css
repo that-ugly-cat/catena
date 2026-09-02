@@ -1,4 +1,4 @@
-/* catena — stessa palette scura degli altri strumenti borant */
+/* catena — the same dark palette as the other borant tools */
 :root {
   --bg: #0f1117;
   --card: #1a1d27;
@@ -48,7 +48,7 @@ body {
 .login { max-width: 380px; margin: 12vh auto 0; }
 .login h1 { margin-bottom: 4px; }
 
-/* ── tipografia ── */
+/* ── typography ── */
 h1 { font-size: 24px; margin: 8px 0 16px; }
 h2 { font-size: 16px; margin: 0 0 10px; }
 h3 { font-size: 14px; margin: 18px 0 8px; color: var(--muted); }
@@ -75,31 +75,31 @@ details summary { cursor: pointer; }
   border-radius: var(--radius); padding: 18px 20px; margin: 16px 0;
 }
 
-/* ── avvisi e verdetti ── */
-.alert {
+/* ── flashes and verdicts ── */
+.flash {
   background: var(--danger-bg); border: 1px solid var(--danger-border);
   color: var(--danger); border-radius: 8px; padding: 10px 14px; margin: 12px 0;
   font-size: 14px;
 }
-.alert-ok { background: var(--ok-bg); border-color: var(--ok-border); color: var(--ok); }
+.flash-ok { background: var(--ok-bg); border-color: var(--ok-border); color: var(--ok); }
 
 .verdict { border-radius: 8px; padding: 12px 16px; margin: 12px 0; font-size: 14px; }
 .verdict ul { margin: 8px 0 0; padding-left: 18px; }
 .verdict li { margin: 6px 0; }
-.verdict-larga { background: var(--danger-bg); border: 1px solid var(--danger-border); }
-.verdict-larga strong { color: var(--danger); }
-.verdict-stretta { background: var(--warn-bg); border: 1px solid var(--warn-border); }
-.verdict-stretta strong { color: var(--warn); }
+.verdict-wide { background: var(--danger-bg); border: 1px solid var(--danger-border); }
+.verdict-wide strong { color: var(--danger); }
+.verdict-narrow { background: var(--warn-bg); border: 1px solid var(--warn-border); }
+.verdict-narrow strong { color: var(--warn); }
 
-/* ── pill ── */
-.pill {
+/* ── badges ── */
+.badge {
   display: inline-block; font-size: 11.5px; padding: 2px 8px; border-radius: 999px;
   border: 1px solid var(--border); color: var(--muted); margin: 2px 4px 2px 0;
 }
-.pill-ok { color: var(--ok); border-color: var(--ok-border); }
-.pill-write { color: var(--warn); border-color: var(--warn-border); }
+.badge-ok { color: var(--ok); border-color: var(--ok-border); }
+.badge-write { color: var(--warn); border-color: var(--warn-border); }
 
-/* ── tabelle ── */
+/* ── tables ── */
 .table { width: 100%; border-collapse: collapse; margin: 10px 0; }
 .table th, .table td {
   text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border);
@@ -111,7 +111,7 @@ dl.ro { margin: 0; display: grid; grid-template-columns: 140px 1fr; gap: 6px 12p
 dl.ro dt { color: var(--muted-2); font-size: 13px; }
 dl.ro dd { margin: 0; }
 
-/* ── form ── */
+/* ── forms ── */
 label { display: block; margin: 10px 0; font-size: 13px; color: var(--muted); }
 input[type=text], input[type=email], input[type=password], input:not([type]) {
   display: block; width: 100%; margin-top: 4px;

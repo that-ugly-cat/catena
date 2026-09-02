@@ -1,59 +1,78 @@
 # catena
 
-Riferimenti Zotero dentro documenti Word, con la ragione della citazione attaccata.
+Zotero references inside Word documents, with the reason for the citation attached.
 
-Il nome viene dalla *catena* medievale: una compilazione di passi citati da autorità diverse, incatenati al testo che commentano. Vale anche in senso letterale, per la catena di identificatori che va da una ricerca bibliografica al campo dentro il `.docx` senza che nessuno trascriva niente a mano.
+The name comes from the medieval *catena*: a compilation of passages quoted from different authorities, chained to the text they comment on. It also holds literally, for the chain of identifiers that runs from a literature search to the field inside the `.docx` without anyone retyping anything.
 
-`catena` **non** è un gestore di bibliografia (quello è Zotero), non è un tracker di progetti (PaperTrail), non è un motore di ricerca della letteratura (Contrarian). È il tessuto connettivo fra i tre. E non scrive prosa: inserisce, aggiorna e rimuove riferimenti, e basta.
+`catena` is **not** a bibliography manager (that is Zotero), not a project tracker (PaperTrail), not a literature search engine (Contrarian). It is the connective tissue between the three. And it does not write prose: it inserts, updates and removes references, and nothing else.
 
-La specifica completa è in [SPEC.md](SPEC.md), chiusa alla versione 1.0. Ogni affermazione tecnica che contiene è verificata su materiale reale, e dice dove.
+The full specification is in [SPEC.md](SPEC.md), closed at version 1.0 and written in Italian. Every technical claim in it was verified against real material, and it says where.
 
-## Stato
+## Status
 
-Primo pezzo: l'**audit**, in sola lettura. Nessuna rete, nessuna credenziale, nessuna dipendenza — tutto quello che controlla è deducibile dal file.
-
-```bash
-python -m catena.cli audit manoscritto.docx
-```
-
-Segnala:
-
-- **surrogati duplicati** — lo stesso paper citato sotto due URI diversi, che produce due voci di bibliografia e due numeri. In APA diventa una disambiguazione per anno (`2008a`/`2008b`) che non esiste. È il difetto più insidioso perché il documento sembra corretto;
-- **URI legati a un profilo Zotero locale**, che risolvono su una sola macchina al mondo e per i coautori sono orfani;
-- **item senza URI o senza dati incorporati**, cioè citazioni che si romperanno in mano a qualcun altro;
-- **metadati sporchi** — DOI che non sono DOI, titoli mancanti;
-- `citationID` duplicati, `fieldType` inatteso, bibliografia mancante, stili con note a piè di pagina (non ancora gestiti), revisioni tracciate da conservare.
-
-Codice d'uscita: `0` pulito, `1` almeno un errore (o un avviso con `--strict`), `2` file illeggibile.
-
-## Perché l'audit per primo
-
-Vale già da solo su manoscritti che esistono, scritti anche da altri e anni fa; non richiede che il resto di `catena` sia pronto; e serve a validare `catena` stessa quando lo sarà. Sul fixture dello spike ritrova **staticamente** il difetto che prima si poteva osservare solo aprendo Word.
-
-## Il server
-
-Web minimo più superficie MCP, stessa impalcatura degli altri strumenti borant: FastAPI, JWT in cookie httpOnly, SQLite in un file, Docker dietro Caddy. Vedi [DEPLOY.md](DEPLOY.md).
-
-Tre pagine: login, binding, profilo. È il profilo che conta, e fa due cose.
-
-**Configura la chiave Zotero, e la rifiuta se ha il perimetro sbagliato.** `catena` non ha credenziali proprie verso Zotero: usa quella dell'utente, e arriva esattamente dove arriva lui. Ma una chiave non è accettabile solo perché funziona. Il caso che il validatore esiste per intercettare è subdolo e capita davvero: `access.groups` può avere una voce `all` che vale da default per i gruppi non elencati, e con `all.write = true` i `write: false` sui gruppi esistenti sembrano un perimetro stretto mentre **ogni gruppo futuro nascerà scrivibile**. Il perimetro non è fisso: cresce da solo. La forma accettata è quella in cui il default nega e l'eccezione è una sola, esplicita:
-
-```
-Personal Library      : library access, NIENTE write, NIENTE files
-All Groups            : Read Only
-<gruppo di deposito>  : Read/Write   ← unica eccezione
-```
-
-**Gestisce le chiavi MCP.** Una chiave per client, legata a una persona: porta la sua identità e quindi la portata della sua chiave Zotero, né più né meno. Header `X-API-Key`, o la variante nel path per i client che non sanno mandare header custom — con l'avvertenza che quell'URL *è* la credenziale e finisce nei log.
-
-## Sviluppo
+First piece: the **audit**, read-only. No network, no credentials, no dependencies — everything it checks can be worked out from the file.
 
 ```bash
-uv run --with pytest python -m pytest tests -q
+python -m catena.cli audit manuscript.docx
 ```
 
-`spike/` contiene il generatore del fixture: un `.docx` con campi Zotero costruito a mano in OOXML, aperto in Word, sottoposto a Refresh e a cambio di stile. È il banco di prova di tutto il resto — vedi [spike/README.md](spike/README.md).
+It reports:
 
-## Cosa manca
+- **duplicate surrogates** — the same paper cited under two different URIs, which produces two bibliography entries and two numbers. In APA it becomes a year disambiguation (`2008a`/`2008b`) that does not exist. This is the nastiest defect of the lot, because the document looks correct;
+- **URIs tied to a local Zotero profile**, which resolve on exactly one machine in the world and are orphans to every co-author;
+- **items with no URI or no embedded data** — citations that will break in somebody else's hands;
+- **dirty metadata** — DOIs that are not DOIs, missing titles;
+- duplicate `citationID`s, unexpected `fieldType`, missing bibliography, footnote styles (not handled yet), tracked changes that must be preserved.
 
-Il server MCP, l'ingest via translation-server, l'iniettore. I flussi previsti sono descritti in SPEC §13; due casi restano senza esemplare reale e il codice li rifiuta esplicitamente invece di indovinare: i documenti misti Zotero + manuale (§13.5) e gli stili con note a piè di pagina (§7.6).
+Exit code: `0` clean, `1` at least one error (or a warning with `--strict`), `2` unreadable file.
+
+## Why the audit first
+
+It is already worth something on manuscripts that exist, written by other people and years ago; it does not require the rest of `catena` to be ready; and it is how `catena` will check itself once it is. On the spike fixture it finds, **statically**, the defect that could previously only be seen by opening Word.
+
+## The server
+
+A minimal web app plus the MCP surface, on the same scaffolding as the other borant tools: FastAPI, JWT in an httpOnly cookie, SQLite in a single file, Docker behind Caddy. See [DEPLOY.md](DEPLOY.md).
+
+Three pages — sign in, bindings, profile — and the profile is the one that matters. It does two things.
+
+**It configures the Zotero key, and refuses it if the perimeter is wrong.** `catena` has no credentials of its own towards Zotero: it uses the user's, and reaches exactly as far as they do. But a key is not acceptable merely because it works. The case the validator exists to catch is subtle and happens in real life: `access.groups` may carry an `all` entry acting as the default for groups not listed, and with `all.write = true` the `write: false` entries on today's groups look like a narrow perimeter while **every future group is born writable**. The perimeter is not fixed: it grows on its own. The accepted shape is the one where the default denies and the exception is a single explicit one:
+
+```
+Personal Library  : library access, NO write, NO files
+All Groups        : Read Only
+<deposit group>   : Read/Write   ← the only exception
+```
+
+**It manages the MCP keys.** One key per client, bound to a person: it carries their identity and therefore the reach of their Zotero key, no more and no less. Header `X-API-Key`, or the path variant for clients that cannot send custom headers — with the caveat that such a URL *is* the credential and ends up in access logs.
+
+## Signing in: local, or Borant ID
+
+Two modes, and `local` is the default on purpose — an app that believes an identity header with nothing in front of it lets in anyone who can send that header.
+
+```
+AUTH_MODE=local     (default)   email and password against this app's own table
+AUTH_MODE=gateway               Borant ID vouches for the caller via X-Borant-*
+```
+
+In gateway mode `catena` never talks to Borant ID: it reads the headers Caddy attaches, and only when the request comes from `BORANT_TRUSTED_PROXY`. Lookup is by `borant_sub` and never by email, because an email is something a gate operator types and a subject is not: matching on it would let a typo hand one person another person's Zotero key. An unknown subject gets a fresh profile, which is harmless here in a way worth stating — a new profile has no Zotero credential, so it reaches no library at all, and the failure mode is an empty page rather than a leak.
+
+Existing local accounts are joined to their subject with `link_borant.py`, by hand, once. It has to be by hand for the same reason.
+
+The MCP surface is unaffected by either mode: a model client has no browser and no cookie, so its own key stays the only credential it can carry.
+
+## Development
+
+```bash
+cp .env.example .env
+printf 'JWT_SECRET=%s\n' "$(openssl rand -hex 32)" >> .env
+uv run --env-file .env --extra server python seed.py you@example.org "You" pw
+uv run --env-file .env --extra server uvicorn catena.server.main:app --reload --port 8021
+uv run --extra server --with pytest python -m pytest tests -q
+```
+
+`spike/` holds the fixture generator: a `.docx` with Zotero fields built by hand in OOXML, opened in Word, refreshed and switched from Vancouver to APA. It is the proving ground for everything else — see [spike/README.md](spike/README.md).
+
+## What is missing
+
+The MCP server, ingest through the translation server, the injector. The intended flows are described in SPEC §13. Two cases still have no real exemplar and the code refuses them explicitly rather than guessing: mixed Zotero + hand-typed documents (§13.5) and footnote styles (§7.6).

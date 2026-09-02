@@ -1,13 +1,13 @@
 """
-catena — app web.
+catena — the web app.
 
-Poche pagine, e per ora nessuna che scriva su Zotero: si entra, si configura la
-propria chiave Zotero, si gestiscono le chiavi MCP, si vedono i binding. Le
-operazioni vere arriveranno dalla superficie MCP.
+A few pages, and for now none of them writes to Zotero: you sign in, you
+configure your Zotero key, you manage your MCP keys, you look at your bindings.
+The real operations arrive on the MCP surface.
 
-La pagina che conta e' `/profile`: e' li' che una chiave Zotero viene validata
-prima di essere accettata (SPEC §2.2), ed e' l'unico punto del sistema in cui
-un perimetro sbagliato puo' ancora essere fermato prima di fare danni.
+The page that matters is `/profile`. It is there that a Zotero key is validated
+before being accepted (SPEC §2.2), and it is the only point in the system where
+a wrong perimeter can still be stopped before it does any damage.
 """
 
 from __future__ import annotations
@@ -26,8 +26,8 @@ from . import zotero_key
 from .auth import (
     COOKIE,
     create_token,
+    gateway_mode,
     get_current_user,
-    get_user_or_none,
     hash_password,
     verify_password,
 )
@@ -47,24 +47,41 @@ def _startup() -> None:
 
 
 def render(request: Request, name: str, **ctx) -> HTMLResponse:
+    ctx.setdefault("gateway", gateway_mode())
     return templates.TemplateResponse(request, name, ctx)
 
 
 @app.exception_handler(HTTPException)
 def _http_error(request: Request, exc: HTTPException):
     if exc.status_code == 401:
+        # In gateway mode the app has no sign-in of its own: the gate turns an
+        # unauthenticated request away before it ever reaches here, so a 401
+        # arriving at this point means the headers were missing or untrusted.
+        # Sending the visitor to a local form we do not use would only confuse.
+        if gateway_mode():
+            return templates.TemplateResponse(
+                request,
+                "error.html",
+                {"code": 401, "detail": "The sign-in gate did not vouch for this request.",
+                 "gateway": True},
+                status_code=401,
+            )
         return RedirectResponse("/login", status_code=303)
     return templates.TemplateResponse(
-        request, "error.html", {"code": exc.status_code, "detail": exc.detail},
+        request,
+        "error.html",
+        {"code": exc.status_code, "detail": exc.detail, "gateway": gateway_mode()},
         status_code=exc.status_code,
     )
 
 
-# --- sessione ----------------------------------------------------------------
+# --- session (local mode only) -----------------------------------------------
 
 
 @app.get("/login", response_class=HTMLResponse)
 def login_form(request: Request):
+    if gateway_mode():
+        return render(request, "gated.html")
     return render(request, "login.html")
 
 
@@ -75,19 +92,29 @@ def login(
     password: str = Form(...),
     db: Session = Depends(get_db),
 ):
+    if gateway_mode():
+        raise HTTPException(404, "Not found")
     user = db.query(User).filter(User.email == email.strip().lower()).first()
     if not user or not user.is_active or not verify_password(password, user.password_hash):
-        return render(request, "login.html", error="Email o password non validi.")
+        return render(request, "login.html", error="Wrong email or password.")
     resp = RedirectResponse("/", status_code=303)
     resp.set_cookie(
-        COOKIE, create_token(user.id), httponly=True, samesite="lax",
-        secure=PUBLIC_URL.startswith("https"), max_age=7 * 24 * 3600,
+        COOKIE,
+        create_token(user.id),
+        httponly=True,
+        samesite="lax",
+        secure=PUBLIC_URL.startswith("https"),
+        max_age=7 * 24 * 3600,
     )
     return resp
 
 
 @app.get("/logout")
 def logout():
+    if gateway_mode():
+        # The session belongs to the gate, not to us: ending it here would
+        # leave the browser holding a live gate cookie and looking signed out.
+        return RedirectResponse("https://id.borant.eu/logout", status_code=303)
     resp = RedirectResponse("/login", status_code=303)
     resp.delete_cookie(COOKIE)
     return resp
@@ -112,7 +139,7 @@ def home(
     return render(request, "home.html", user=user, bindings=bindings, cred=cred)
 
 
-# --- profilo: chiave Zotero e chiavi MCP -------------------------------------
+# --- profile: the Zotero key and the MCP keys --------------------------------
 
 
 def _profile_ctx(db: Session, user: User, **extra) -> dict:
@@ -130,8 +157,12 @@ def _profile_ctx(db: Session, user: User, **extra) -> dict:
         except (json.JSONDecodeError, TypeError):
             scope = None
     return {
-        "user": user, "keys": keys, "cred": cred, "scope": scope,
-        "public_url": PUBLIC_URL, **extra,
+        "user": user,
+        "keys": keys,
+        "cred": cred,
+        "scope": scope,
+        "public_url": PUBLIC_URL,
+        **extra,
     }
 
 
@@ -151,7 +182,7 @@ def save_zotero_key(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Valida prima, salva dopo. Una chiave dal perimetro sbagliato non entra."""
+    """Validate first, save second. A key with the wrong perimeter never lands."""
     api_key = api_key.strip()
     try:
         scope = zotero_key.check(api_key)
@@ -159,10 +190,7 @@ def save_zotero_key(
         return render(request, "profile.html", **_profile_ctx(db, user, error=str(e)))
 
     if not scope.usable:
-        return render(
-            request, "profile.html",
-            **_profile_ctx(db, user, rejected=scope, error=None),
-        )
+        return render(request, "profile.html", **_profile_ctx(db, user, rejected=scope))
 
     cred = db.query(ZoteroCredential).filter(ZoteroCredential.user_id == user.id).first()
     if not cred:
@@ -176,8 +204,9 @@ def save_zotero_key(
     cred.checked_at = utcnow()
     db.commit()
     return render(
-        request, "profile.html",
-        **_profile_ctx(db, user, ok="Chiave Zotero verificata e salvata."),
+        request,
+        "profile.html",
+        **_profile_ctx(db, user, ok="Zotero key verified and saved."),
     )
 
 
@@ -196,7 +225,7 @@ def new_api_key(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    db.add(ApiKey(user_id=user.id, name=name.strip() or "senza nome"))
+    db.add(ApiKey(user_id=user.id, name=name.strip() or "unnamed"))
     db.commit()
     return RedirectResponse("/profile", status_code=303)
 
@@ -207,13 +236,9 @@ def revoke_api_key(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    row = (
-        db.query(ApiKey)
-        .filter(ApiKey.id == key_id, ApiKey.user_id == user.id)
-        .first()
-    )
+    row = db.query(ApiKey).filter(ApiKey.id == key_id, ApiKey.user_id == user.id).first()
     if not row:
-        raise HTTPException(404, "Chiave non trovata")
+        raise HTTPException(404, "Key not found")
     row.active = False
     db.commit()
     return RedirectResponse("/profile", status_code=303)
@@ -227,18 +252,25 @@ def change_password(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if gateway_mode():
+        # The password is the gate's business. Changing it here would edit a
+        # credential nobody uses and leave the real one untouched.
+        raise HTTPException(404, "Not found")
     if not verify_password(current, user.password_hash):
         return render(
-            request, "profile.html",
-            **_profile_ctx(db, user, error="La password attuale non e' corretta."),
+            request,
+            "profile.html",
+            **_profile_ctx(db, user, error="Current password is not correct."),
         )
     user.password_hash = hash_password(new)
     db.commit()
     return render(
-        request, "profile.html", **_profile_ctx(db, user, ok="Password aggiornata.")
+        request, "profile.html", **_profile_ctx(db, user, ok="Password updated.")
     )
 
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True}
+    """Deliberately outside the gate — and therefore green even when the gate is
+    down and nobody can get in. Any useful monitor also hits a gated route."""
+    return {"ok": True, "auth_mode": "gateway" if gateway_mode() else "local"}

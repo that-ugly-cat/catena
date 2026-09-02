@@ -1,22 +1,21 @@
 """
-Validazione della chiave Zotero — SPEC §2.2.
+Zotero key validation — SPEC §2.2.
 
-Una chiave Zotero non e' accettabile solo perche' funziona: deve avere il
-perimetro giusto. Il caso che questa funzione esiste per intercettare e' subdolo
-e capita davvero — e' capitato durante la scrittura della specifica, il
-2 settembre 2026.
+A Zotero key is not acceptable merely because it works: it has to have the right
+perimeter. The case this exists to catch is subtle, and it happens in real life —
+it happened while the specification was being written, on 2 September 2026.
 
-`access.groups` puo' contenere una voce `all` che vale da default per i gruppi
-non elencati esplicitamente. Con `all.write = true`, i `write: false` sui gruppi
-esistenti sembrano un perimetro stretto, ma **ogni gruppo creato o raggiunto in
-futuro nasce scrivibile**. Il perimetro non e' fisso: cresce da solo, e sei mesi
-dopo nessuno se lo ricorda.
+`access.groups` may carry an `all` entry that acts as the default for groups not
+listed explicitly. With `all.write = true`, the `write: false` entries on the
+existing groups look like a narrow perimeter, but **every group created or
+joined from then on is born writable**. The perimeter is not fixed: it grows on
+its own, and six months later nobody remembers.
 
-Il verdetto:
+The verdict:
 
-    ok       il default nega, l'eccezione e' esplicita e limitata
-    larga    scrittura sulla libreria personale, o groups.all.write -> RIFIUTATA
-    stretta  nessun gruppo scrivibile: catena non ha dove depositare
+    ok      the default denies, the exception is explicit and limited
+    wide    write on the personal library, or groups.all.write -> REFUSED
+    narrow  no writable group at all: catena has nowhere to deposit
 """
 
 from __future__ import annotations
@@ -29,7 +28,7 @@ from dataclasses import dataclass, field
 API = "https://api.zotero.org"
 TIMEOUT = 15
 
-OK, LARGA, STRETTA = "ok", "larga", "stretta"
+OK, WIDE, NARROW = "ok", "wide", "narrow"
 
 
 @dataclass
@@ -68,18 +67,18 @@ def fetch_current_key(api_key: str) -> dict:
     except urllib.error.HTTPError as e:
         if e.code in (403, 404):
             raise ZoteroError(
-                "Zotero non riconosce questa chiave (403). Controlla di averla "
-                "copiata per intero da zotero.org/settings/keys."
+                "Zotero does not recognise this key (403). Check that you copied "
+                "it whole from zotero.org/settings/keys."
             ) from e
-        raise ZoteroError(f"Zotero ha risposto {e.code}.") from e
+        raise ZoteroError(f"Zotero answered {e.code}.") from e
     except urllib.error.URLError as e:
-        raise ZoteroError(f"Non riesco a raggiungere api.zotero.org: {e.reason}") from e
+        raise ZoteroError(f"Cannot reach api.zotero.org: {e.reason}") from e
     except json.JSONDecodeError as e:
-        raise ZoteroError("Risposta di Zotero illeggibile.") from e
+        raise ZoteroError("Zotero's answer could not be read.") from e
 
 
 def evaluate(payload: dict) -> KeyScope:
-    """Il verdetto sul perimetro, con le ragioni in chiaro."""
+    """The verdict on the perimeter, with the reasons spelled out."""
     access = payload.get("access") or {}
     user = access.get("user") or {}
     groups = access.get("groups") or {}
@@ -102,26 +101,26 @@ def evaluate(payload: dict) -> KeyScope:
 
     if scope.personal_write:
         scope.reasons.append(
-            "La chiave puo' scrivere sulla tua libreria personale. catena non ne "
-            "ha bisogno: deposita in un gruppo dedicato. Togli «Allow write "
-            "access» da Personal Library."
+            "This key can write to your personal library. catena does not need "
+            "that: it deposits into a dedicated group. Turn off “Allow write "
+            "access” for Personal Library."
         )
     if scope.groups_all_write:
         scope.reasons.append(
-            "«All Groups» e' impostato su Read/Write. I permessi che vedi sui "
-            "gruppi attuali sono eccezioni a quel default, quindi ogni gruppo "
-            "nuovo nascera' scrivibile da questa chiave. Metti All Groups su "
-            "Read Only e concedi la scrittura solo al gruppo di deposito."
+            "“All Groups” is set to Read/Write. The permissions you see on the "
+            "current groups are exceptions to that default, so every new group "
+            "will be born writable by this key. Set All Groups to Read Only and "
+            "grant write access to the deposit group alone."
         )
     if scope.reasons:
-        scope.verdict = LARGA
+        scope.verdict = WIDE
         return scope
 
     if not scope.writable_groups:
-        scope.verdict = STRETTA
+        scope.verdict = NARROW
         scope.reasons.append(
-            "Nessun gruppo e' scrivibile, quindi catena non ha dove depositare "
-            "gli item nuovi. Concedi Read/Write al solo gruppo di deposito."
+            "No group is writable, so catena has nowhere to deposit new items. "
+            "Grant Read/Write to the deposit group only."
         )
     return scope
 

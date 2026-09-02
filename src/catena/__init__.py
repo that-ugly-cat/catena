@@ -1,7 +1,7 @@
-"""catena — riferimenti Zotero dentro documenti Word.
+"""catena — Zotero references inside Word documents.
 
-Vedi SPEC.md. Il nome viene dalla catena medievale: una compilazione di passi
-citati da autorita' diverse, incatenati al testo che commentano.
+See SPEC.md. The name comes from the medieval catena: a compilation of passages
+quoted from different authorities, chained to the text they comment on.
 """
 
 __version__ = "0.1.0"
