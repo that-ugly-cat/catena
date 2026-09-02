@@ -13,4 +13,4 @@ RUN pip install --no-cache-dir --prefer-binary ".[server]"
 COPY seed.py link_borant.py ./
 RUN mkdir -p data
 
-CMD ["uvicorn", "catena.server.main:app", "--host", "0.0.0.0", "--port", "8021"]
+CMD ["uvicorn", "catena.server.main:app", "--host", "0.0.0.0", "--port", "8022"]

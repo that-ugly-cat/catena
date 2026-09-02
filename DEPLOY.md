@@ -1,11 +1,16 @@
 # Deploy — catena.borant.eu
 
-Port **8021**, behind Caddy, on the borant VPS (`/opt/apps/catena`).
+Port **8022**, behind Caddy, on the borant VPS (`/opt/apps/catena`).
+
+The port has to be free on the loopback of that box, and 8021 was already
+taken. Before deploying anything here again, check: `ss -ltnp | grep 127.0.0.1`.
 
 ## First install
 
 ```bash
-ssh spit@borant.eu
+# borant.eu sits behind Cloudflare, so port 22 does not reach the origin:
+# connect to the host itself.
+ssh spit@178.105.139.118
 sudo mkdir -p /opt/apps/catena && sudo chown spit:spit /opt/apps/catena
 git clone https://github.com/that-ugly-cat/catena.git /opt/apps/catena
 cd /opt/apps/catena
@@ -26,7 +31,7 @@ Then configure the Zotero key and create the first MCP key from `/profile`.
 
 ```
 catena.borant.eu {
-    reverse_proxy localhost:8021
+    reverse_proxy localhost:8022
 }
 ```
 
@@ -54,11 +59,11 @@ catena.borant.eu {
     handle @public {
         import noforge
         import nocookie
-        reverse_proxy localhost:8021
+        reverse_proxy localhost:8022
     }
     handle {
         import borantid
-        reverse_proxy localhost:8021
+        reverse_proxy localhost:8022
     }
 }
 ```
@@ -166,5 +171,5 @@ whether a rollback actually took effect.
 cp .env.example .env
 printf 'JWT_SECRET=%s\n' "$(openssl rand -hex 32)" >> .env
 uv run --env-file .env --extra server python seed.py you@example.org "You" pw
-uv run --env-file .env --extra server uvicorn catena.server.main:app --reload --port 8021
+uv run --env-file .env --extra server uvicorn catena.server.main:app --reload --port 8022
 ```

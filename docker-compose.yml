@@ -6,7 +6,7 @@ services:
     container_name: catena
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8021:8021"
+      - "127.0.0.1:8022:8022"
     env_file:
       - .env
     # Stessa cautela degli altri: la scatola e' da 4 GB e 2 CPU in tutto.

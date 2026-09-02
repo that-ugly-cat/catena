@@ -67,7 +67,7 @@ The MCP surface is unaffected by either mode: a model client has no browser and 
 cp .env.example .env
 printf 'JWT_SECRET=%s\n' "$(openssl rand -hex 32)" >> .env
 uv run --env-file .env --extra server python seed.py you@example.org "You" pw
-uv run --env-file .env --extra server uvicorn catena.server.main:app --reload --port 8021
+uv run --env-file .env --extra server uvicorn catena.server.main:app --reload --port 8022
 uv run --extra server --with pytest python -m pytest tests -q
 ```
 
