@@ -729,3 +729,32 @@ Sono i requisiti veri del riconoscitore della §8.1.1. Ognuna ha fatto sbagliare
 - **§8.3 corretta.** Diceva che l'iniettore «non tocca `w:ins`». Sbagliato: in questo documento **una citazione sta dentro un blocco `w:ins`**, quindi il campo va inserito *conservando* la marcatura di revisione e la sua attribuzione, non evitando il blocco. Con due autori di revisione distinti, sbagliare qui significa attribuire a una persona il testo di un'altra.
 - **I 12 commenti** non contengono citazioni, ma ancorano a intervalli del corpo: una sostituzione che attraversa il confine di un'ancora può spezzarla. L'iniettore la lascia stare e lo dice, invece di provarci.
 - **La §13.5 resta senza esemplare.** Questo è un draft tutto-a-mano, non un misto: il caso «metà in Zotero e metà a mano» continua a non avere un file vero su cui tararsi. La differenza non è cosmetica — nel misto il passo che conta è la collisione fra le due popolazioni, e qui una delle due popolazioni è vuota.
+
+### 12.5 La catena intera, verificata dal vivo — 3 settembre 2026
+
+Non più pezzi isolati: il giro completo, dalla superficie MCP a Word.
+
+`create_collection` crea una collezione nel gruppo di deposito; `create_binding`
+lega un paper a due gambe reali risolvendo i nomi umani in chiavi Zotero;
+`collection_items` legge la gamba di lettura e confronta le due; `citation_field`
+produce un campo raggruppato di due item e uno singolo con locator;
+`document_prefs` restituisce le due proprietà, 255 e 50 caratteri — la stessa
+spezzatura che Zotero aveva prodotto nel manoscritto della §7.
+
+Quelle uscite sono state impacchettate in un `.docx` **senza che nessuna chiave,
+nessun CSL-JSON e nessun URI passasse per una trascrizione a mano**, poi:
+
+- l'audit della §13.3 lo ha riletto con **zero errori** — le due metà del
+  formato, quella che scrive e quella che legge, d'accordo su un documento
+  contro cui nessuna delle due era stata scritta;
+- aperto in Word con Zotero attivo e sottoposto a Refresh, si è formattato
+  correttamente: raggruppamento e locator inclusi.
+
+**È la catena del nome, chiusa.** Da una collezione Zotero a un campo formattato
+in Word, senza un solo passaggio in cui qualcuno ricopia qualcosa.
+
+Resta fuori il ramo di ingest — `resolve_identifier`, `add_item`, `add_verified`,
+`plan_ingest` — che ha bisogno della translation-server, e quindi del VPS
+(§5). E resta l'iniettore: oggi il `.docx` viene assemblato da zero, mentre la
+§8 chiede di inserire i campi in un documento che esiste già, conservandone
+revisioni e commenti.

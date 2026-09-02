@@ -102,4 +102,6 @@ uv run --extra server --with pytest python -m pytest tests -q
 
 ## What is missing
 
-Ingest through the translation server, and the injector. The intended flows are described in SPEC §13. Two cases still have no real exemplar and the code refuses them explicitly rather than guessing: mixed Zotero + hand-typed documents (§13.5) and footnote styles (§7.6).
+Ingest through the translation server, and the injector — today a document is
+assembled from scratch, while the point is to place fields into one that already
+exists, keeping its tracked changes and comments intact. The intended flows are described in SPEC §13. Two cases still have no real exemplar and the code refuses them explicitly rather than guessing: mixed Zotero + hand-typed documents (§13.5) and footnote styles (§7.6).
