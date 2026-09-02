@@ -46,6 +46,32 @@ All Groups        : Read Only
 
 **It manages the MCP keys.** One key per client, bound to a person: it carries their identity and therefore the reach of their Zotero key, no more and no less. Header `X-API-Key`, or the path variant for clients that cannot send custom headers — with the caveat that such a URL *is* the credential and ends up in access logs.
 
+## The injector
+
+```bash
+python -m catena.cli discover draft.docx              # what the author typed
+python -m catena.cli inject draft.docx --plan p.json --out out.docx
+```
+
+`discover` reads the citations as they were written — `(Rosato et al., 2008)`,
+`(Bullo & Hearn, 2024; Hudson, 2021)` — attaches each to the author's own
+reference list, and reports which ones carry a DOI, which need a person, and
+which match nothing at all. It resolves nothing by itself: a citation it cannot
+read is one somebody looks at, never one catena guesses.
+
+`inject` places field codes where the markers were, into a **copy**. It does not
+know what a DOI is and holds no credential; everything requiring judgement
+happened before it ran. What it does know is the OOXML, which is hostile in
+three specific ways — a marker scattered across five runs has to be recomposed
+and split apart again; a field belonging to a tracked insertion has to stay
+inside it, or the sentence changes author; and a marker straddling a comment
+anchor is refused rather than risked, because an unplaced marker is a nuisance
+while a broken comment is somebody's review lost.
+
+Verified on a real co-authored draft with 11 tracked insertions, 8 deletions and
+12 comments: eight fields placed, and every count in the package identical
+afterwards.
+
 ## The MCP surface
 
 Eleven tools at `/mcp`, authenticated by a per-user key. Reads are free; the
@@ -102,6 +128,6 @@ uv run --extra server --with pytest python -m pytest tests -q
 
 ## What is missing
 
-Ingest through the translation server, and the injector — today a document is
-assembled from scratch, while the point is to place fields into one that already
-exists, keeping its tracked changes and comments intact. The intended flows are described in SPEC §13. Two cases still have no real exemplar and the code refuses them explicitly rather than guessing: mixed Zotero + hand-typed documents (§13.5) and footnote styles (§7.6).
+Ingest through the translation server: resolving a DOI, ISBN or URL into a real
+Zotero item, so that a citation the author typed but never filed can be added
+rather than merely reported. The intended flows are described in SPEC §13. Two cases still have no real exemplar and the code refuses them explicitly rather than guessing: mixed Zotero + hand-typed documents (§13.5) and footnote styles (§7.6).
