@@ -46,6 +46,33 @@ All Groups        : Read Only
 
 **It manages the MCP keys.** One key per client, bound to a person: it carries their identity and therefore the reach of their Zotero key, no more and no less. Header `X-API-Key`, or the path variant for clients that cannot send custom headers — with the caveat that such a URL *is* the credential and ends up in access logs.
 
+## The MCP surface
+
+Eleven tools at `/mcp`, authenticated by a per-user key. Reads are free; the
+three writes touch only the binding's deposit library, and nothing here deletes
+anything or edits an item that already exists.
+
+Reading: `list_libraries` (what your key reaches, and where it can write),
+`list_collections`, `list_bindings`, `get_binding`, `collection_items`,
+`search_library`.
+
+Producing: `citation_field` returns a Word field code ready to place — several
+keys in one call make a *grouped* citation, `(1,2)` rather than two adjacent
+fields, which is the common case rather than the exception. `bibliography_field`
+and `document_prefs` supply the other two pieces a document needs.
+
+Writing, after the user confirms: `create_collection` and `create_binding`.
+
+Two behaviours worth knowing. `collection_items` merges both legs of a binding
+and **flags anything that appears on both**, because the same paper reached
+through two different URIs produces two bibliography entries and two numbers.
+And `citation_field` resolves keys on the source leg first, so a paper that
+exists in both is cited from the copy co-authors can actually resolve.
+
+The visible text of a citation comes back empty on purpose: one Refresh in Word
+fills it in, numbering and grouping included. The Zotero API cannot, because it
+renders each item alone and knows nothing of the order they appear in.
+
 ## Signing in: local, or Borant ID
 
 Two modes, and `local` is the default on purpose — an app that believes an identity header with nothing in front of it lets in anyone who can send that header.
@@ -75,4 +102,4 @@ uv run --extra server --with pytest python -m pytest tests -q
 
 ## What is missing
 
-The MCP server, ingest through the translation server, the injector. The intended flows are described in SPEC §13. Two cases still have no real exemplar and the code refuses them explicitly rather than guessing: mixed Zotero + hand-typed documents (§13.5) and footnote styles (§7.6).
+Ingest through the translation server, and the injector. The intended flows are described in SPEC §13. Two cases still have no real exemplar and the code refuses them explicitly rather than guessing: mixed Zotero + hand-typed documents (§13.5) and footnote styles (§7.6).

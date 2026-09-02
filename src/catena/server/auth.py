@@ -23,6 +23,7 @@ import ipaddress
 import logging
 import os
 import secrets
+from contextvars import ContextVar
 from datetime import datetime, timedelta
 
 import bcrypt
@@ -249,6 +250,28 @@ def check_api_key(db: Session, key: str) -> ApiKey | None:
         row.last_used_at = utcnow()
         db.commit()
     return row
+
+
+_caller: ContextVar["User | None"] = ContextVar("mcp_caller", default=None)
+
+
+def set_caller(user: "User | None") -> None:
+    """Called once per MCP request, by the middleware that resolved the key."""
+    _caller.set(user)
+
+
+def current_caller() -> User:
+    """The person this MCP call runs as.
+
+    A ContextVar rather than a parameter threaded through every tool: the MCP
+    layer does not carry request objects into tool functions, and an identity
+    that has to be passed by hand is an identity somebody eventually forgets to
+    pass.
+    """
+    user = _caller.get()
+    if user is None:
+        raise PermissionError("no MCP caller in context — the key gate did not run")
+    return user
 
 
 def mcp_user(db: Session, request: Request, path_key: str | None = None) -> User:

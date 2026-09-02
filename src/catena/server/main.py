@@ -1,9 +1,11 @@
 """
-catena — the web app.
+catena — the web app, and the mount point of the MCP surface.
 
-A few pages, and for now none of them writes to Zotero: you sign in, you
-configure your Zotero key, you manage your MCP keys, you look at your bindings.
-The real operations arrive on the MCP surface.
+Two ways in. The browser gets a few pages: sign in, configure your Zotero key,
+manage your MCP keys, look at your bindings. The model gets **/mcp**, gated by a
+per-user X-API-Key, with the /mcp/k/{key} capability-URL variant for clients
+that cannot set headers. Both resolve to a person, and a person reaches exactly
+what their Zotero key reaches.
 
 The page that matters is `/profile`. It is there that a Zotero key is validated
 before being accepted (SPEC §2.2), and it is the only point in the system where
@@ -16,34 +18,101 @@ import json
 import os
 from pathlib import Path
 
+from contextlib import asynccontextmanager
+from urllib.parse import urlparse
+
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from mcp.server.transport_security import TransportSecuritySettings
 from sqlalchemy.orm import Session
 
 from . import zotero_key
 from .auth import (
     COOKIE,
+    check_api_key,
     create_token,
     gateway_mode,
     get_current_user,
     hash_password,
+    set_caller,
     verify_password,
 )
-from .models import ApiKey, Binding, User, ZoteroCredential, get_db, init_db, utcnow
+from .mcp_app import mcp
+from .models import (
+    ApiKey, Binding, SessionLocal, User, ZoteroCredential, get_db, init_db, utcnow,
+)
 
 HERE = Path(__file__).parent
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "https://catena.borant.eu")
 
-app = FastAPI(title="catena", docs_url=None, redoc_url=None)
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_db()
+    async with mcp.session_manager.run():
+        yield
+
+
+app = FastAPI(title="catena", docs_url=None, redoc_url=None, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 templates = Jinja2Templates(directory=HERE / "templates")
 
 
-@app.on_event("startup")
-def _startup() -> None:
-    init_db()
+def _allowed_hosts() -> list[str]:
+    hosts = ["localhost:8022", "127.0.0.1:8022", "localhost", "127.0.0.1"]
+    public = urlparse(PUBLIC_URL).netloc
+    if public:
+        hosts.append(public)
+    return hosts
+
+
+app.mount(
+    "/mcp",
+    mcp.streamable_http_app(
+        streamable_http_path="/",
+        json_response=True,
+        stateless_http=True,
+        transport_security=TransportSecuritySettings(
+            allowed_hosts=_allowed_hosts(), allowed_origins=[PUBLIC_URL]
+        ),
+    ),
+)
+
+
+@app.middleware("http")
+async def api_key_gate(request: Request, call_next):
+    """Resolve the MCP caller, or refuse.
+
+    Two ways in, one table. The header is the normal path; /mcp/k/{key} carries
+    the same key as a path segment for clients that cannot set headers, and is
+    stripped before the mounted app sees it — so the MCP layer never learns how
+    the caller authenticated.
+
+    Deliberately independent of AUTH_MODE: a model client has no browser, no
+    cookie and no gate session, so its key is the only credential it can carry.
+    """
+    path = request.url.path
+    if not path.startswith("/mcp"):
+        return await call_next(request)
+
+    if path.startswith("/mcp/k/"):
+        key, _, rest = path[len("/mcp/k/") :].partition("/")
+        request.scope["path"] = "/mcp/" + rest
+        request.scope["raw_path"] = request.scope["path"].encode()
+    else:
+        key = request.headers.get("X-API-Key", "")
+
+    db = SessionLocal()
+    try:
+        row = check_api_key(db, key)
+        set_caller(row.user if row and row.user.is_active else None)
+        ok = bool(row and row.user.is_active)
+    finally:
+        db.close()
+    if not ok:
+        return JSONResponse({"error": "missing or invalid API key"}, status_code=401)
+    return await call_next(request)
 
 
 def render(request: Request, name: str, **ctx) -> HTMLResponse:
