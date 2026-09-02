@@ -136,28 +136,41 @@ that is worth knowing before rather than during.
 ## The translation server
 
 Ingest needs Zotero's own translators — the ones behind the connector button —
-because catena never builds an item from a title. It runs as a second container
-in the same compose file and is **never published**: it takes a URL and fetches
-it, which is not a thing to leave open to the internet. It is already in
-`docker-compose.yml`; `TRANSLATION_URL` in `.env` points at it.
+because catena never builds an item from a title.
+
+**It is built from source, not pulled, and that is not fastidiousness.** On
+Docker Hub `zotero/translation-server:latest` and `:2.0.6` are published for
+**arm64 only** (January 2025); the newest amd64 tag is `2.0.4`, from January
+2021. Pull it on an amd64 host and the container starts, warns once about the
+platform, and then never answers — a failure that reads like networking and is
+not. Building also fetches current translators, which is what resolving a URL
+depends on.
+
+Clone the source once, with its submodules, where the compose file expects it:
 
 ```bash
-docker compose up -d --build
+git clone --recurse-submodules https://github.com/zotero/translation-server.git   /opt/apps/catena/vendor/translation-server
+cd /opt/apps/catena && docker compose up -d --build
+```
+
+`vendor/` is git-ignored, so it survives `git pull` and is never committed.
+
+Check it, from inside the app container, on the compose network:
+
+```bash
 docker compose exec app python -c "from catena.server.translation import Translation; print('alive:', Translation().alive())"
 ```
 
 `alive: True` means the ladder in SPEC §5 has something to climb. If it is
 False, ingest is the only thing that stops working — the audit, the injector,
-the citation fields and the whole read surface do not touch it.
+the citation fields and the whole read surface never touch it. Look at
+`docker compose logs translation` first; a platform warning there is the
+symptom above.
 
-A quick check of each rung, once it is up:
+Each rung, once it is up:
 
 ```bash
-docker compose exec translation sh -c '
-  for id in 10.1016/S0140-6736\(08\)61406-3 30798313 9780199212094; do
-    printf "%-34s " "$id"
-    curl -s -d "$id" -H "Content-Type: text/plain" localhost:1969/search       | head -c 90; echo
-  done'
+docker compose exec translation sh -c 'for id in 10.1016/j.socscimed.2011.05.031 30798313 9780199212094; do printf "%-34s " "$id"; curl -s -d "$id" -H "Content-Type: text/plain" localhost:1969/search | head -c 80; echo; done'
 ```
 
 ## Updates

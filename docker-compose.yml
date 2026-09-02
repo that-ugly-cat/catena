@@ -16,12 +16,24 @@ services:
 
   # Zotero's own translators — the ones behind the connector button. catena
   # never builds an item from a title, so this is the only way metadata gets in.
-  # Never published: it takes a URL and fetches it, which is not something to
+  #
+  # Built from source rather than pulled, for a reason worth writing down:
+  # zotero/translation-server:latest and :2.0.6 on Docker Hub are published
+  # **arm64 only** (January 2025), and the newest amd64 tag is 2.0.4 from
+  # January 2021. On an amd64 host the pulled image starts and then does not
+  # answer — the failure looks like a networking problem and is a platform one.
+  # Building also fetches current translators, which is what the /web rung of
+  # the ladder depends on.
+  #
+  # The source is cloned by hand, once, with its submodules: see DEPLOY.md.
+  # Never published: it takes a URL and fetches it, which is not a thing to
   # leave open to the internet.
   translation:
-    image: zotero/translation-server
+    build:
+      context: ./vendor/translation-server
     container_name: catena-translation
     restart: unless-stopped
     expose:
       - "1969"
-    mem_limit: 400m
+    # Node plus the whole translator set; 400m was not generous enough.
+    mem_limit: 512m

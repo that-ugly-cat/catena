@@ -17,3 +17,6 @@ scratch/
 # config locale dell'editor
 .claude/launch.json
 data/
+
+# Third-party source cloned at deploy time (see DEPLOY.md)
+vendor/
