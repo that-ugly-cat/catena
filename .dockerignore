@@ -1,0 +1,11 @@
+# Never let a local secret or a local database into the image.
+.env
+*.env
+!.env.example
+data/
+.venv/
+__pycache__/
+*.pyc
+.git/
+tests/
+spike/
