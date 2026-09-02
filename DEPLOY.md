@@ -2,8 +2,11 @@
 
 Port **8022**, behind Caddy, on the borant VPS (`/opt/apps/catena`).
 
-The port has to be free on the loopback of that box, and 8021 was already
-taken. Before deploying anything here again, check: `ss -ltnp | grep 127.0.0.1`.
+The port has to be free on the loopback of that box, and 8021 was already taken
+by dovetail. Before deploying anything here again: `ss -ltnp | grep 127.0.0.1`.
+
+DNS needs nothing: `*.borant.eu` is a wildcard through Cloudflare, so a new
+hostname resolves before Caddy has ever heard of it.
 
 ## First install
 
@@ -136,6 +139,33 @@ and `catena` reaches it at `http://translation:1969`.
 ```bash
 cd /opt/apps/catena && git pull && docker compose up -d --build
 ```
+
+**On this box, `git pull` needs a credential.** Anonymous git-over-HTTPS to
+GitHub is throttled from that IP: it works for isolated requests and fails for
+bursts, and the failure looks like an authentication problem — a 401 asking for
+a username — which points at exactly the wrong thing. It cost half an hour on
+2 September 2026 before the pattern was clear.
+
+The fix is one fine-grained token, read-only, for the whole machine, so the
+twenty-odd repos in `/opt/apps` keep their `https://` remotes untouched:
+
+*Settings → Developer settings → Personal access tokens → Fine-grained*, owner
+`that-ugly-cat`, all repositories, **`Contents: Read-only` and nothing else**.
+
+```bash
+git config --global credential.helper store
+read -rsp 'token: ' T && printf 'https://that-ugly-cat:%s@github.com
+' "$T" > ~/.git-credentials && chmod 600 ~/.git-credentials && unset T
+```
+
+It expires, silently, and on that day every deploy on the machine stops at once
+with the same misleading 401. The expiry date belongs on a calendar.
+
+Two smaller traps from the same evening. Do not chain git operations with `&&`
+when the throttle is active — a burst is what trips it. And never pipe `git
+fetch` into `head`: the early pipe close sends SIGPIPE, git dies mid-transfer,
+and the next `merge --ff-only` reports "already up to date" while the working
+tree stays on the old commit.
 
 Migrations are additive and run at startup (`init_db()` in `models.py`): no
 manual step, and no automatic rollback either. Columns are never renamed and
