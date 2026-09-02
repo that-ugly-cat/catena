@@ -115,9 +115,23 @@ nothing breaks and nobody is locked out — a second profile appears under
 ### Rollback
 
 `AUTH_MODE=local` in `.env` plus `docker compose up -d`, and drop
-`import borantid` from the Caddy block. The first one on its own is enough —
-which is why accounts provisioned through the gate still get a real (random)
-password rather than none.
+`import borantid` from the Caddy block. The first one on its own is enough.
+
+**But only if a local account with a known password exists.** A profile the gate
+provisioned carries a random password nobody has ever seen, and catena has no
+password reset: falling back to `local` with only gate-provisioned accounts
+leaves you outside your own app. So on an installation that will be gated, seed
+a real account first and link it:
+
+```bash
+docker exec -it catena python seed.py you@example.org "You" '<password>'
+docker exec -it catena python link_borant.py you@example.org 01YOURSUB
+```
+
+That is two doors instead of one, and the second is the one you need on the day
+the gate is down. Skipping it is a defensible choice — one fewer credential to
+keep — but then the rollback is `AUTH_MODE=local` *plus* a fresh `seed.py`, and
+that is worth knowing before rather than during.
 
 ## The translation server
 
