@@ -1,0 +1,22 @@
+[project]
+name = "catena"
+version = "0.1.0"
+description = "Riferimenti Zotero dentro documenti Word, con la ragione della citazione attaccata."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Giovanni Spitale" }]
+dependencies = []
+
+[project.optional-dependencies]
+# Il server e l'ingest arrivano dopo: l'audit non ha dipendenze di proposito.
+server = ["fastapi", "uvicorn[standard]", "sqlalchemy", "jinja2", "pyzotero>=1.15.1", "mcp>=2.0,<3"]
+
+[project.scripts]
+catena = "catena.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/catena"]

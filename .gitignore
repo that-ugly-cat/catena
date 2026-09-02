@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+dist/
+build/
+
+# segreti: la chiave Zotero non entra nel repo, mai
+.env
+*.env
+
+# materiale di prova con contenuti altrui
+spike/*.docx
+!spike/catena-spike.docx
+scratch/
