@@ -13,3 +13,15 @@ services:
     mem_limit: 300m
     volumes:
       - ./data:/app/data
+
+  # Zotero's own translators — the ones behind the connector button. catena
+  # never builds an item from a title, so this is the only way metadata gets in.
+  # Never published: it takes a URL and fetches it, which is not something to
+  # leave open to the internet.
+  translation:
+    image: zotero/translation-server
+    container_name: catena-translation
+    restart: unless-stopped
+    expose:
+      - "1969"
+    mem_limit: 400m

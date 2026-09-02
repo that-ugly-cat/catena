@@ -87,7 +87,23 @@ keys in one call make a *grouped* citation, `(1,2)` rather than two adjacent
 fields, which is the common case rather than the exception. `bibliography_field`
 and `document_prefs` supply the other two pieces a document needs.
 
+Ingesting, after the user confirms: `resolve_identifier` previews what a DOI,
+PMID, arXiv id, ISBN or URL turns into; `plan_ingest` resolves a batch and
+decides nothing; `apply_ingest` executes exactly that plan, once; `add_item` is
+a plan of one; and `add_verified` adds a paper together with the reason it is
+cited — Contrarian's verbatim passages as a child note, and a tag carrying the
+bearing, `catena:supports` or `catena:contradicts`.
+
 Writing, after the user confirms: `create_collection` and `create_binding`.
+
+Three guards stand in front of every write. **Idempotency**: a unique row on
+(binding, identifier) catches the retry pyzotero's own write token does not,
+because that one is fresh per call while the retry comes from a level above.
+**Deduplication**: DOI, then ISBN, then a fuzzy title match — and on the fuzzy
+rung catena asks rather than decides, because a duplicate is not cosmetic here.
+**The author cross-check**: when a draft says `[Assan, 10.1136/…]` the surname
+resolves nothing but checks everything, and a DOI that comes back with someone
+else's paper was copied wrong.
 
 Two behaviours worth knowing. `collection_items` merges both legs of a binding
 and **flags anything that appears on both**, because the same paper reached
@@ -128,6 +144,7 @@ uv run --extra server --with pytest python -m pytest tests -q
 
 ## What is missing
 
-Ingest through the translation server: resolving a DOI, ISBN or URL into a real
-Zotero item, so that a citation the author typed but never filed can be added
-rather than merely reported. The intended flows are described in SPEC §13. Two cases still have no real exemplar and the code refuses them explicitly rather than guessing: mixed Zotero + hand-typed documents (§13.5) and footnote styles (§7.6).
+The translation server is exercised only through a stub here: it runs as a
+container beside catena and there is none on the development machine. The ladder,
+the deduplication, the cross-check and the refusals are all tested; the one
+function that posts a string and reads JSON is verified on the VPS. The intended flows are described in SPEC §13. Two cases still have no real exemplar and the code refuses them explicitly rather than guessing: mixed Zotero + hand-typed documents (§13.5) and footnote styles (§7.6).

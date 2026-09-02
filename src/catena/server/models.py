@@ -185,6 +185,25 @@ class IngestEvent(Base):
     binding = relationship("Binding")
 
 
+class IngestPlan(Base):
+    """What an ingest would do, decided before anything is written.
+
+    A plan is persisted rather than returned and forgotten, so that
+    `apply_ingest` executes what a person actually read and agreed to — not a
+    fresh resolution that may have drifted. It also carries the second half of
+    the idempotency: a plan already applied is refused instead of replayed.
+    """
+
+    __tablename__ = "ingest_plans"
+    id = Column(Integer, primary_key=True)
+    binding_id = Column(Integer, ForeignKey("bindings.id"), nullable=False)
+    payload = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=utcnow)
+    applied_at = Column(DateTime, nullable=True)
+
+    binding = relationship("Binding")
+
+
 # Columns added after the first release. Additive only: the migration runs an
 # ALTER TABLE when the column is missing and does nothing when it is there.
 _ADDED_COLUMNS = {

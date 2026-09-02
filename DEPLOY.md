@@ -135,18 +135,30 @@ that is worth knowing before rather than during.
 
 ## The translation server
 
-Ingest (SPEC §5) needs Zotero's container alongside. It is not wired into the
-compose file yet because ingest does not exist. When it does:
+Ingest needs Zotero's own translators — the ones behind the connector button —
+because catena never builds an item from a title. It runs as a second container
+in the same compose file and is **never published**: it takes a URL and fetches
+it, which is not a thing to leave open to the internet. It is already in
+`docker-compose.yml`; `TRANSLATION_URL` in `.env` points at it.
 
-```yaml
-  translation:
-    image: zotero/translation-server
-    restart: unless-stopped
-    expose: ["1969"]        # internal to the compose network, never published
-    mem_limit: 400m
+```bash
+docker compose up -d --build
+docker compose exec app python -c "from catena.server.translation import Translation; print('alive:', Translation().alive())"
 ```
 
-and `catena` reaches it at `http://translation:1969`.
+`alive: True` means the ladder in SPEC §5 has something to climb. If it is
+False, ingest is the only thing that stops working — the audit, the injector,
+the citation fields and the whole read surface do not touch it.
+
+A quick check of each rung, once it is up:
+
+```bash
+docker compose exec translation sh -c '
+  for id in 10.1016/S0140-6736\(08\)61406-3 30798313 9780199212094; do
+    printf "%-34s " "$id"
+    curl -s -d "$id" -H "Content-Type: text/plain" localhost:1969/search       | head -c 90; echo
+  done'
+```
 
 ## Updates
 

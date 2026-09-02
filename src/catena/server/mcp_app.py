@@ -24,13 +24,17 @@ from __future__ import annotations
 
 import functools
 import inspect
+import os
 
 from mcp.server.mcpserver import MCPServer
 
 from .. import build
-from . import auth
-from .models import Binding, SessionLocal, ZoteroCredential
+from . import auth, ingest as ing
+from .models import Binding, IngestPlan, SessionLocal, ZoteroCredential
+from .translation import DEFAULT_URL, Translation, TranslationError, brief
 from .zotero_client import ZoteroError, zot_for
+
+TRANSLATION_URL = os.environ.get("TRANSLATION_URL", DEFAULT_URL)
 
 mcp = MCPServer(
     name="catena",
@@ -108,7 +112,7 @@ def _tool(fn):
             return _fail(str(e))
         try:
             return fn(ctx, *a, **kw)
-        except (LookupError, ValueError, ZoteroError) as e:
+        except (LookupError, ValueError, ZoteroError, TranslationError) as e:
             return _fail(str(e))
         finally:
             ctx.close()
@@ -479,3 +483,151 @@ def create_collection(ctx, name: str, library: str = "") -> dict:
             "key": created.get("key") or (created.get("data") or {}).get("key"),
         }
     }
+
+
+# --- ingest ------------------------------------------------------------------
+
+
+@mcp.tool()
+@_tool
+def resolve_identifier(ctx, identifier: str) -> dict:
+    """What a DOI, PMID, arXiv id, ISBN or URL resolves to. Writes nothing.
+
+    Metadata comes from Zotero's own translators — the ones behind the connector
+    button — and never from a model's memory. catena will not build an item from
+    a title, because a guessed item is indistinguishable from a real one, which
+    makes it the only error here that nobody can see.
+    """
+    res = Translation(TRANSLATION_URL).resolve(identifier)
+    return {
+        "identifier": res.identifier,
+        "kind": res.kind,
+        "item": brief(res.item or {}),
+        "other_candidates": len(res.items) - 1,
+    }
+
+
+@mcp.tool()
+@_tool
+def plan_ingest(ctx, label: str, identifiers: list[str], hints: dict | None = None) -> dict:
+    """Resolve a batch, decide nothing, and write nothing.
+
+    One confirmation on a plan you can read whole beats forty blind ones, which
+    is what a per-item confirmation becomes on a real draft. Each row says what
+    would happen — new, already present, ambiguous, or unresolved — and carries
+    the warnings that should give a person pause.
+
+    `hints` maps an identifier to the surname the draft attached to it. That name
+    resolves nothing; it *checks*. If the DOI comes back with another author's
+    paper, the identifier was copied wrong, and this is the cheapest place in the
+    whole system to notice.
+    """
+    b = ctx.binding(label)
+    rows = ing.build_plan(ctx.zot(), Translation(TRANSLATION_URL), b, identifiers, hints or {})
+    plan = ing.save_plan(ctx.db, b, rows)
+    counts = {}
+    for r in rows:
+        counts[r.outcome] = counts.get(r.outcome, 0) + 1
+    return {
+        "plan_id": plan.id,
+        "binding": b.label,
+        "deposit": b.deposit_library,
+        "counts": counts,
+        "rows": [
+            {k: v for k, v in r.as_dict().items() if k != "raw"} for r in rows
+        ],
+        "note": "Nothing has been written. apply_ingest(plan_id) executes exactly this.",
+    }
+
+
+@mcp.tool()
+@_tool
+def apply_ingest(ctx, plan_id: int, force_ambiguous: bool = False) -> dict:
+    """Execute a plan, once. Confirm with the user before calling.
+
+    A plan already applied is refused rather than replayed, and every item is
+    guarded by a unique row keyed on (binding, identifier) — so a retried call
+    recognises what it already did instead of adding it twice.
+
+    `force_ambiguous` adds the rows that matched an existing title without
+    sharing an identifier. Only say yes to that when a person has looked.
+    """
+    plan = ctx.db.query(IngestPlan).filter(IngestPlan.id == plan_id).first()
+    if not plan:
+        return _fail(f"no plan {plan_id}")
+    b = ctx.db.query(Binding).filter(Binding.id == plan.binding_id,
+                                     Binding.user_id == ctx.user.id).first()
+    if not b:
+        return _fail(f"plan {plan_id} does not belong to you")
+    return ing.apply_plan(ctx.db, ctx.zot(), b, plan, force_ambiguous=force_ambiguous)
+
+
+@mcp.tool()
+@_tool
+def add_item(ctx, label: str, identifier: str, hint: str = "") -> dict:
+    """Add one identifier to a binding's deposit collection. Confirm first.
+
+    A plan of one, applied. For more than a couple of items use plan_ingest, so
+    that what gets confirmed is a list somebody read rather than a sequence of
+    isolated yeses.
+    """
+    b = ctx.binding(label)
+    rows = ing.build_plan(
+        ctx.zot(), Translation(TRANSLATION_URL), b, [identifier],
+        {identifier: hint} if hint else {},
+    )
+    if rows[0].outcome != "new":
+        return {
+            "not_added": rows[0].outcome,
+            "row": {k: v for k, v in rows[0].as_dict().items() if k != "raw"},
+        }
+    plan = ing.save_plan(ctx.db, b, rows)
+    return ing.apply_plan(ctx.db, ctx.zot(), b, plan)
+
+
+@mcp.tool()
+@_tool
+def add_verified(
+    ctx,
+    label: str,
+    identifier: str,
+    run_id: str,
+    verdict: str,
+    passages: list[dict],
+) -> dict:
+    """Add a paper together with the reason it is cited. Confirm first.
+
+    This is the tool catena exists for. Contrarian produces verbatim passages
+    and a verdict per paper; they live only in its trace, and here they travel
+    into Zotero as a child note on the item, plus a tag carrying the *bearing* —
+    `catena:supports`, `catena:contradicts`, `catena:qualifies`.
+
+    A paper that contradicts you belongs in the bibliography; that is half the
+    point of verifying. It must simply never be cited as though it agreed.
+
+    `verdict` of `irrelevant` is refused: Contrarian defines it as "no quotable
+    passage bearing on the claim", so such a paper is not a reference at all.
+    """
+    verdict = (verdict or "").strip().lower()
+    if verdict == "irrelevant":
+        return _fail(
+            "a paper judged 'irrelevant' has no quotable passage bearing on the "
+            "claim, so it is not a citation. Nothing was added."
+        )
+    if not passages:
+        return _fail(
+            "add_verified without passages is just add_item with extra steps. "
+            "The verbatim quote is the reason this tool exists."
+        )
+    b = ctx.binding(label)
+    rows = ing.build_plan(ctx.zot(), Translation(TRANSLATION_URL), b, [identifier])
+    if rows[0].outcome != "new":
+        return {
+            "not_added": rows[0].outcome,
+            "row": {k: v for k, v in rows[0].as_dict().items() if k != "raw"},
+        }
+    plan = ing.save_plan(ctx.db, b, rows)
+    return ing.apply_plan(
+        ctx.db, ctx.zot(), b, plan,
+        provenance={"run_id": run_id, "verdict": verdict, "passages": passages},
+    )
