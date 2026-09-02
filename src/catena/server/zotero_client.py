@@ -43,6 +43,12 @@ def parse_library(library: str) -> tuple[str, str]:
     return ident, "user" if kind == "users" else "group"
 
 
+def _is_not_found(exc: Exception) -> bool:
+    """Whether a pyzotero failure means "no such item" rather than "broken"."""
+    text = str(exc).lower()
+    return "code: 404" in text or "does not exist" in text
+
+
 @dataclass
 class LibraryInfo:
     library: str
@@ -167,14 +173,25 @@ class Zot:
         return [self._shape(library, r) for r in z.items()[:limit]]
 
     def items(self, library: str, keys: list[str]) -> list[dict]:
-        """Specific items by key, in the order asked for."""
+        """Specific items by key, in the order asked for; missing ones absent.
+
+        A key that is not in this library is **not** an error here. Callers walk
+        the legs of a binding in turn, so "not here" is an ordinary answer and
+        has to look like one — otherwise the first leg that misses aborts the
+        search and the model gets pyzotero's raw dump, URL and all, instead of a
+        sentence saying which key was not found where. Anything that is not a
+        404 still raises: that one is a real failure and hiding it would turn a
+        broken key or a network fault into a silently short list.
+        """
         z = self._client(library)
         found: dict[str, dict] = {}
         for key in keys:
             z.add_parameters(include="csljson,data")
             try:
                 row = z.item(key)
-            except Exception as e:  # pyzotero raises its own hierarchy
+            except Exception as e:  # pyzotero has its own exception hierarchy
+                if _is_not_found(e):
+                    continue
                 raise ZoteroError(f"{library}/{key}: {e}") from e
             found[key] = self._shape(library, row)
         return [found[k] for k in keys if k in found]
