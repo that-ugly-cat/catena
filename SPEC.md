@@ -105,11 +105,11 @@ ingest_event               -- audit e chiave di idempotenza
   created_at
 ```
 
-Il `papertrail_project_id` è la chiave che chiude il cerchio: se il binding conosce il progetto, «le reference di ETHOS» si risolve senza che l'utente dica quale collezione.
+Il `papertrail_project_id` è la chiave che chiude il cerchio: se il binding conosce il progetto, «le reference di quel paper» si risolve senza che l'utente dica quale collezione.
 
 ### 3.1 Le due gambe
 
-Un binding legge da una parte e scrive dall'altra. È il caso normale, non l'eccezione: le reference di un paper vivono nel gruppo del paper — `ETHOS review`, `speak ICU` — su cui la chiave è deliberatamente in sola lettura (§2.2), mentre le aggiunte nuove atterrano nella libreria di deposito.
+Un binding legge da una parte e scrive dall'altra. È il caso normale, non l'eccezione: le reference di un paper vivono nel gruppo di quel paper, su cui la chiave è deliberatamente in sola lettura (§2.2), mentre le aggiunte nuove atterrano nella libreria di deposito.
 
 - `collection_items(binding)` **unisce le due gambe** e segnala i doppioni fra l'una e l'altra: lo stesso paper può esistere come due item distinti con due key diverse, ed è normale.
 - `add_item` scrive **solo** sulla gamba di deposito. Se qualcuno prova a depositare sulla gamba di lettura, il tool rifiuta con un messaggio che nomina la libreria, non con un 403 crudo.
@@ -259,7 +259,7 @@ Due conseguenze.
 
 ## 7. Il campo Word — formato verificato
 
-Estratto da `raw/pubblicazioni-in-corso/Manuscript_fingerprints.docx` (172 campi, Zotero 7.0.29, stile Vancouver). Non ricostruito dalla documentazione: letto dal file.
+Estratto da un manoscritto reale in lavorazione — 172 campi, Zotero 7.0.29, stile Vancouver. Non ricostruito dalla documentazione: letto dal file. (Il documento non è nel repository: è lavoro non pubblicato, e qui restano solo i fatti che se ne ricavano.)
 
 ### 7.1 Citazione
 
@@ -321,7 +321,7 @@ ADDIN ZOTERO_BIBL {"uncited":[],"omitted":[],"custom":[]} CSL_BIBLIOGRAPHY
 
 **Ma funziona solo per metà degli stili, e non per quello di riferimento.** Il server rende ogni item *isolatamente*: non sa in che ordine compaiono nel documento, né quali citazioni siano raggruppate.
 
-Misurato il 2 settembre 2026 su quattro item del gruppo `ETHOS review`, stessa richiesta con due stili:
+Misurato il 2 settembre 2026 su quattro item di una group library reale, stessa richiesta con due stili:
 
 ```
 style=vancouver   ->  '<span>(1)</span>'   x4      ← tutti uguali
@@ -557,7 +557,7 @@ Bibliografia generata: quattro voci, di cui la 3 e la 4 sono lo stesso paper (Ro
 
 **Il caso 5 è la scoperta.** Un URI che non risolve non degrada solo il riaggancio: genera un item surrogato distinto, che prende un numero proprio e una voce di bibliografia propria. Il paper viene contato due volte. La §3.2 è stata riscritta di conseguenza, e `reconcile` da comodità è diventato un passaggio obbligato prima di condividere un documento.
 
-Osservazione incidentale, non un difetto del fixture: la prima voce di bibliografia esce con `doi:a` perché l'item `5BS3UJP2` in `groups/6378365` ha il campo DOI valorizzato con la lettera `a`. È un dato sporco nella libreria, e vale la pena correggerlo alla fonte.
+Osservazione incidentale, non un difetto del fixture: la prima voce di bibliografia esce con `doi:a`, perché uno dei tre item ha il campo DOI valorizzato con la sola lettera `a`. È un dato sporco nella libreria di partenza — e il tipo di cosa che l'audit della §13.3 trova senza che nessuno la cerchi.
 
 ### 12.3 Cambio di stile — eseguito, 2 settembre 2026
 
@@ -672,13 +672,13 @@ Questa è la ragione per cui il consolidamento è il flusso in cui il modello a 
 
 **6. Criterio di uscita, e non è un'opinione.** Si rilancia l'audit della §13.3 e devono uscire tre zeri: **zero URI irrisolvibili, zero surrogati duplicati, zero citazioni il cui item non è nella collezione bersaglio.** Finché uno dei tre non è zero, il consolidamento non è finito. È l'unico flusso di questa specifica che ha una definizione di «fatto» verificabile a macchina, e conviene tenersela.
 
-**Quello che ancora non sappiamo.** Un esemplare reale del caso misto non è stato esaminato: `Manuscript_fingerprints.docx`, l'unico documento con campi Zotero nel materiale disponibile, è interamente collegato — le sue 172 citazioni sono campi, e i DOI che compaiono nel testo visibile appartengono alla bibliografia renderizzata, non a citazioni battute a mano. Quindi **i pattern di riconoscimento della §8.1.1 non sono tarati su niente di vero.** Prima di implementare il passo 1 serve almeno un draft misto autentico da cui derivarli, altrimenti si scrivono espressioni regolari contro un caso immaginato.
+**Quello che ancora non sappiamo.** Un esemplare reale del caso misto non è stato esaminato. L'unico documento con campi Zotero nel materiale disponibile — quello della §7 — è interamente collegato — le sue 172 citazioni sono campi, e i DOI che compaiono nel testo visibile appartengono alla bibliografia renderizzata, non a citazioni battute a mano. Quindi **i pattern di riconoscimento della §8.1.1 non sono tarati su niente di vero.** Prima di implementare il passo 1 serve almeno un draft misto autentico da cui derivarli, altrimenti si scrivono espressioni regolari contro un caso immaginato.
 
 ---
 
 ## 14. Calibrazione su un draft reale
 
-La §13.5 chiudeva dicendo che i pattern della §8.1.1 non erano tarati su niente. Il 2 settembre 2026 è arrivato un draft vero: `Wandering wombs v4.docx`, 4,4 MB, coautorato, in lavorazione. Questa sezione è quello che se ne ricava. I numeri valgono per un documento, non per l'universo — ma un documento vero vale più di un caso immaginato.
+La §13.5 chiudeva dicendo che i pattern della §8.1.1 non erano tarati su niente. Il 2 settembre 2026 è arrivato un draft vero: un articolo coautorato in lavorazione, 4,4 MB. (Nemmeno questo è nel repository, per la stessa ragione: le uniche cose che restano qui sono i conteggi e le trappole.) Questa sezione è quello che se ne ricava. I numeri valgono per un documento, non per l'universo — ma un documento vero vale più di un caso immaginato.
 
 ### 14.1 Che caso è
 

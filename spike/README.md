@@ -10,9 +10,10 @@ uv run build_fixture.py fixture_items.json catena-spike.docx
 uv run check_fixture.py catena-spike.docx     # 33 static checks
 ```
 
-`fixture_items.json` holds three real items from `groups/6378365` (ETHOS review)
-with their CSL-JSON. To use different ones, regenerate it from the API with
-`include=csljson,data`.
+`fixture_items.json` holds three real items from a Zotero group library, with
+their CSL-JSON. They are published papers, so the metadata is public, and a
+group id is not a credential — it grants nothing on its own. To use different
+items, regenerate the file from the API with `include=csljson,data`.
 
 ## The test, in Word
 
