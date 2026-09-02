@@ -49,7 +49,7 @@
     {% endif %}
   </table>
   <form method="post" action="/profile/zotero/forget" class="inline">
-    <button class="btn btn-ghost btn-sm" type="submit">Forget this key</button>
+    <button class="btn btn-danger btn-small" type="submit">Forget this key</button>
   </form>
   <p class="small muted mt">
     Forgetting it here does not revoke it. Revocation happens on zotero.org, and
@@ -94,7 +94,7 @@ All Groups        : Read Only
         <td class="ta-right">
           {% if k.active %}
           <form method="post" action="/profile/keys/{{ k.id }}/revoke" class="inline">
-            <button class="btn btn-ghost btn-sm" type="submit">Revoke</button>
+            <button class="btn btn-danger btn-small" type="submit">Revoke</button>
           </form>
           {% endif %}
         </td>

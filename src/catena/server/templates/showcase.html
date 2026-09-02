@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}catena{% endblock %}
+{% block body %}
+<p class="lead">
+catena puts Zotero references inside Word documents, and keeps the reason for
+the citation attached to them. A model in conversation drives it through MCP
+tools; this page is the door.
+</p>
+
+<div class="pillars">
+  <div class="pillar">
+    <div class="pillar-icon">⛓</div>
+    <div class="pillar-text"><strong>Nothing is retyped</strong>
+    <span>From a Zotero collection to a formatted citation in Word there is no
+    step where a DOI, a title or an item key passes through a human — or a
+    model — copying it.</span></div>
+  </div>
+  <div class="pillar">
+    <div class="pillar-icon">§</div>
+    <div class="pillar-text"><strong>References can't be invented</strong>
+    <span>Metadata comes from Zotero's own translators, the ones behind the
+    connector button. catena will not build an item from a title, because an
+    item assembled from memory looks exactly like a real one.</span></div>
+  </div>
+  <div class="pillar">
+    <div class="pillar-icon">”</div>
+    <div class="pillar-text"><strong>The reason travels with the paper</strong>
+    <span>When a reference arrives from a verification, the verbatim passage
+    and the verdict are attached to the Zotero item — so in eight months the
+    answer to "why is this cited here" is two clicks from the citation.</span></div>
+  </div>
+</div>
+
+<div class="explainers">
+  <details class="explainer">
+    <summary><span class="badge">plain words</span> What this is for</summary>
+    <div class="body">
+      <p><strong>The problem.</strong> A manuscript accumulates citations in
+      three ways at once: some are proper Zotero fields, some are typed by hand
+      as <code>(Rosato et al., 2008)</code>, and some arrive from a co-author in
+      a form nobody planned. Reconciling them means copying identifiers between
+      a reference manager and a word processor, which is exactly where a
+      bibliography goes quietly wrong — a mistyped DOI resolves to somebody
+      else's paper and reads perfectly.</p>
+      <p><strong>What catena does.</strong> It ties one paper to one Zotero
+      collection, reads the citations a draft already contains, resolves them
+      against real metadata, and writes them into the document as Zotero fields
+      — the same fields the Word plugin makes. From then on the document is an
+      ordinary Zotero document: changing the citation style is Document
+      Preferences in Word, not something this tool has to be asked for.</p>
+      <p><strong>What it refuses to do.</strong> It does not write prose. It
+      does not invent an item when an identifier will not resolve — it says so
+      and stops. It does not decide between two papers with the same title. And
+      it never deletes anything from a library.</p>
+    </div>
+  </details>
+  <details class="explainer">
+    <summary><span class="badge">geek mode</span> Same story, technical register</summary>
+    <div class="body">
+      <p><strong>The field.</strong> A Zotero citation in Word is a field code
+      carrying CSL-JSON and a URI that relinks it to the library item, plus two
+      custom document properties holding the style. catena reads that format and
+      writes it, and both halves were checked against a real manuscript, a
+      generated fixture, a round trip through Word and a style change from
+      Vancouver to APA.</p>
+      <p><strong>The split.</strong> The server resolves and produces field
+      codes; a local injector splices them into OOXML, knowing nothing about
+      DOIs and holding no credential. The injector's difficulty is the document,
+      not the bibliography: a marker scattered across five runs, a field that
+      must stay inside the tracked insertion it belongs to or the sentence
+      changes author, a comment anchor that must not be cut in half.</p>
+      <p><strong>Access.</strong> catena has no credentials of its own towards
+      Zotero. Every call runs with the caller's own key and reaches exactly what
+      that person reaches; an account with no key configured reaches nothing at
+      all. Writes are confined to one dedicated library, and there is no tool
+      here that deletes an item or edits one that already exists.</p>
+    </div>
+  </details>
+</div>
+
+<p class="cta"><a class="btn btn-primary" href="/app">Enter</a></p>
+{% endblock %}

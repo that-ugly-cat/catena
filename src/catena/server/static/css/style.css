@@ -37,6 +37,7 @@ body {
   padding: 0 24px; height: 56px;
 }
 .topbar .brand { font-weight: 700; font-size: 18px; color: var(--text); text-decoration: none; letter-spacing: .02em; }
+.topbar .tagline { flex: 1 1 auto; min-width: 0; }
 .topbar nav { display: flex; align-items: center; gap: 18px; }
 .topbar nav a {
   color: var(--muted); text-decoration: none; font-size: 14px;
@@ -44,7 +45,7 @@ body {
 }
 .topbar nav a:hover { color: var(--text); border-bottom-color: var(--accent); }
 
-.container { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
+.container { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
 .login { max-width: 380px; margin: 12vh auto 0; }
 .login h1 { margin-bottom: 4px; }
 
@@ -107,7 +108,11 @@ details summary { cursor: pointer; }
 }
 .table thead th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted-2); font-weight: 600; }
 .table tr.revoked td { opacity: .45; }
-dl.ro { margin: 0; display: grid; grid-template-columns: 140px 1fr; gap: 6px 12px; }
+/* minmax(0, 1fr) and never a bare 1fr: the implicit minimum of 1fr is `auto`,
+   so a column that cannot shrink below its content pushes the page sideways
+   instead of letting the value wrap. It shows up only in the longest language
+   on the narrowest screen, which is to say months later. */
+dl.ro { margin: 0; display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 6px 12px; }
 dl.ro dt { color: var(--muted-2); font-size: 13px; }
 dl.ro dd { margin: 0; }
 
@@ -131,6 +136,29 @@ input:focus { outline: none; border-color: var(--accent); }
 .btn:hover { border-color: var(--accent); }
 .btn-primary { background: var(--primary); border-color: var(--primary); }
 .btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
-.btn-ghost { background: transparent; color: var(--muted); }
-.btn-ghost:hover { color: var(--danger); border-color: var(--danger-border); }
-.btn-sm { padding: 4px 10px; font-size: 12.5px; }
+.btn-danger { background: transparent; color: var(--muted); }
+.btn-danger:hover { color: var(--danger); border-color: var(--danger-border); }
+.btn-link { background: transparent; border-color: transparent; color: var(--accent-light); }
+.btn-small { padding: 4px 10px; font-size: 12.5px; }
+
+/* ── the showcase ── */
+.tagline { color: var(--muted-2); font-size: 12.5px; margin-left: 14px; }
+.lead { font-size: 15px; color: var(--muted); line-height: 1.75; max-width: 44rem; margin: 18px 0 0; }
+.pillars { display: flex; flex-direction: column; gap: 18px; max-width: 560px; margin: 28px 0 8px; }
+.pillar { display: flex; gap: 14px; align-items: flex-start; }
+.pillar-icon {
+  flex: 0 0 32px; height: 32px; display: grid; place-items: center;
+  border: 1px solid var(--border); border-radius: 8px; color: var(--accent-light);
+  font-size: 15px; background: var(--card);
+}
+.pillar-text { min-width: 0; }
+.pillar-text strong { display: block; color: var(--text); font-size: 14px; margin-bottom: 3px; }
+.pillar-text span { font-size: 13px; color: var(--muted-2); line-height: 1.55; }
+.explainers { display: flex; flex-direction: column; gap: 10px; margin: 30px 0 6px; }
+.explainer { border: 1px solid var(--border); border-radius: 8px; background: var(--card); }
+.explainer summary { padding: 11px 16px; cursor: pointer; font-size: 13.5px; color: var(--muted); }
+.explainer summary:hover { color: var(--text); }
+.explainer .body { padding: 2px 18px 14px; }
+.explainer .body p { font-size: 13.5px; color: var(--muted); line-height: 1.7; max-width: 52rem; }
+.explainer .body strong { color: var(--text); }
+.cta { margin: 30px 0 0; }

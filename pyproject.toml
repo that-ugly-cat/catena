@@ -21,6 +21,10 @@ server = [
   "mcp>=2.0,<3",
 ]
 
+# TestClient needs httpx; keeping it declared means `--extra dev` is the whole
+# answer to "how do I run the tests" rather than a list to remember.
+dev = ["pytest", "httpx"]
+
 [project.scripts]
 catena = "catena.cli:main"
 

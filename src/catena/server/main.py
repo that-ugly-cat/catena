@@ -47,6 +47,25 @@ from .models import (
 HERE = Path(__file__).parent
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "https://catena.borant.eu")
 
+# The paths that reach the app without an identity, declared once here and read
+# from here — `caddy.py` prints the reverse-proxy block from this list. Written
+# down in one place because the day somebody adds a public route is the day they
+# should notice, not six months later.
+#
+# The test a path has to pass is not "is it harmless to read": it is **no method
+# on this path needs to know who is asking**. A public page with a private POST
+# on top of it is the version of this mistake that people who learned the first
+# version still make.
+PUBLIC_PATHS = [
+    "/",             # the showcase, which never looks at its reader
+    "/healthz",
+    "/static/*",
+    "/login",        # in gateway mode the app turns these away itself
+    "/logout",
+    "/mcp",          # its own per-user key; a model client has no cookie
+    "/mcp/*",
+]
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
@@ -96,6 +115,20 @@ async def api_key_gate(request: Request, call_next):
     if not path.startswith("/mcp"):
         return await call_next(request)
 
+    # The endpoint people are told to use is the one without a trailing slash,
+    # and the Starlette mount answers that with a 307. MCP clients do not follow
+    # redirects on POST, and behind TLS termination it is worse: the app does not
+    # know it is on https, so the redirect it builds points at http://. Normalise
+    # here rather than advertising a URL that only works with the slash — which
+    # is how it gets tested by whoever just wrote it.
+    if path == "/mcp":
+        path = "/mcp/"
+        request.scope["path"] = path
+        request.scope["raw_path"] = path.encode()
+
+    # Two ways to present the key, and the path variant is stripped before the
+    # mounted app sees it, so the MCP layer never learns how the caller
+    # authenticated.
     if path.startswith("/mcp/k/"):
         key, _, rest = path[len("/mcp/k/") :].partition("/")
         request.scope["path"] = "/mcp/" + rest
@@ -123,17 +156,28 @@ def render(request: Request, name: str, **ctx) -> HTMLResponse:
 @app.exception_handler(HTTPException)
 def _http_error(request: Request, exc: HTTPException):
     if exc.status_code == 401:
-        # In gateway mode the app has no sign-in of its own: the gate turns an
-        # unauthenticated request away before it ever reaches here, so a 401
-        # arriving at this point means the headers were missing or untrusted.
-        # Sending the visitor to a local form we do not use would only confuse.
+        # Fail closed, do not bounce. In gateway mode this app turns /login away
+        # itself, so redirecting there would put the two in a loop that nobody
+        # sees in production — the gate intercepts first — and that spins
+        # forever the day a Caddy matcher is wrong. A request with no identity
+        # here means the gate did not run, which is a configuration fault, so
+        # the answer is a 503 addressed to whoever can fix it.
         if gateway_mode():
             return templates.TemplateResponse(
                 request,
                 "error.html",
-                {"code": 401, "detail": "The sign-in gate did not vouch for this request.",
-                 "gateway": True},
-                status_code=401,
+                {
+                    "code": 503,
+                    "detail": (
+                        "This request arrived without an identity from the "
+                        "sign-in gate. That means the gate did not run in front "
+                        "of it — check that the Caddy block for this host "
+                        "imports borantid, and that BORANT_TRUSTED_PROXY matches "
+                        "the address requests actually come from."
+                    ),
+                    "gateway": True,
+                },
+                status_code=503,
             )
         return RedirectResponse("/login", status_code=303)
     return templates.TemplateResponse(
@@ -166,7 +210,7 @@ def login(
     user = db.query(User).filter(User.email == email.strip().lower()).first()
     if not user or not user.is_active or not verify_password(password, user.password_hash):
         return render(request, "login.html", error="Wrong email or password.")
-    resp = RedirectResponse("/", status_code=303)
+    resp = RedirectResponse("/app", status_code=303)
     resp.set_cookie(
         COOKIE,
         create_token(user.id),
@@ -189,10 +233,27 @@ def logout():
     return resp
 
 
-# --- home --------------------------------------------------------------------
+# --- the showcase, and the app behind it -------------------------------------
 
 
 @app.get("/", response_class=HTMLResponse)
+def showcase(request: Request):
+    """A public page that never looks at who is reading it.
+
+    Not looking is the whole point. On the gated branch the identity headers are
+    stripped by construction, so a page that checks would be always-anonymous
+    behind the gate and sometimes-not without it — the same page with two
+    behaviours. Not checking, it renders identically in both modes, and a single
+    button covers all four cases: gated or standalone, already signed in or not.
+
+    The button points at `/app`, which is gated, and never at `/login`: a page
+    that cannot recognise anybody, with a button that leads back to itself, is a
+    ring with no way in.
+    """
+    return render(request, "showcase.html")
+
+
+@app.get("/app", response_class=HTMLResponse)
 def home(
     request: Request,
     user: User = Depends(get_current_user),
@@ -205,7 +266,7 @@ def home(
         .all()
     )
     cred = db.query(ZoteroCredential).filter(ZoteroCredential.user_id == user.id).first()
-    return render(request, "home.html", user=user, bindings=bindings, cred=cred)
+    return render(request, "app.html", user=user, bindings=bindings, cred=cred)
 
 
 # --- profile: the Zotero key and the MCP keys --------------------------------

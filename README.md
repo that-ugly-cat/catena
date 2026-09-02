@@ -34,7 +34,10 @@ It is already worth something on manuscripts that exist, written by other people
 
 A minimal web app plus the MCP surface, on the same scaffolding as the other borant tools: FastAPI, JWT in an httpOnly cookie, SQLite in a single file, Docker behind Caddy. See [DEPLOY.md](DEPLOY.md).
 
-Three pages — sign in, bindings, profile — and the profile is the one that matters. It does two things.
+`/` is a public showcase that never looks at who is reading it; the app lives at
+`/app`, gated, and the showcase's single button points there. Behind it: the
+bindings list and the profile — and the profile is the one that matters. It does
+two things.
 
 **It configures the Zotero key, and refuses it if the perimeter is wrong.** `catena` has no credentials of its own towards Zotero: it uses the user's, and reaches exactly as far as they do. But a key is not acceptable merely because it works. The case the validator exists to catch is subtle and happens in real life: `access.groups` may carry an `all` entry acting as the default for groups not listed, and with `all.write = true` the `write: false` entries on today's groups look like a narrow perimeter while **every future group is born writable**. The perimeter is not fixed: it grows on its own. The accepted shape is the one where the default denies and the exception is a single explicit one:
 
@@ -130,6 +133,20 @@ Existing local accounts are joined to their subject with `link_borant.py`, by ha
 
 The MCP surface is unaffected by either mode: a model client has no browser and no cookie, so its own key stays the only credential it can carry.
 
+## Where the personal data is
+
+A deletion request arrives sooner or later, and removing somebody from Borant ID
+does not remove them from here. Three tables hold anything personal:
+
+- `users` — name, email address, and the Borant ID subject;
+- `zotero_credentials` — that person's Zotero API key, **in clear text**, plus
+  the permissions snapshot taken when it was saved;
+- `bindings` and `ingest_events` — labels they chose and identifiers they added,
+  which say what someone is working on.
+
+Nothing else stores a person. The Zotero library itself is not ours: items added
+there live in the user's own account and are removed from Zotero.
+
 ## Development
 
 ```bash
@@ -137,7 +154,7 @@ cp .env.example .env
 printf 'JWT_SECRET=%s\n' "$(openssl rand -hex 32)" >> .env
 uv run --env-file .env --extra server python seed.py you@example.org "You" pw
 uv run --env-file .env --extra server uvicorn catena.server.main:app --reload --port 8022
-uv run --extra server --with pytest python -m pytest tests -q
+uv run --extra server --extra dev python -m pytest tests -q
 ```
 
 `spike/` holds the fixture generator: a `.docx` with Zotero fields built by hand in OOXML, opened in Word, refreshed and switched from Vancouver to APA. It is the proving ground for everything else — see [spike/README.md](spike/README.md).

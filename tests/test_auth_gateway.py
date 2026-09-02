@@ -137,17 +137,20 @@ def test_an_email_already_taken_does_not_lock_anyone_out(db, gateway, monkeypatc
     assert local_only.borant_sub is None, "the old account is left untouched"
 
 
-def test_admin_hint_is_honoured_and_a_typo_is_not(db, gateway, monkeypatch):
-    monkeypatch.setattr(auth, "TRUSTED_PROXIES", auth._parse_trusted("127.0.0.1"))
-    boss = auth.user_from_gateway(
-        FakeRequest({"X-Borant-Sub": "01BOSS", "X-Borant-Hint": "admin"}), db
-    )
-    assert boss.is_admin is True
+def test_the_role_hint_grants_nothing(db, gateway, monkeypatch):
+    """A role vocabulary is a contract about what the code actually reads.
 
-    typo = auth.user_from_gateway(
-        FakeRequest({"X-Borant-Sub": "01TYPO", "X-Borant-Hint": "administrator"}), db
-    )
-    assert typo.is_admin is False, "an unknown hint is a typo, not a role"
+    catena has no admin surface, so honouring `admin` would set a flag that
+    opens nothing — the silent mismatch where a panel offers a role the code
+    quietly downgrades. No vocabulary is declared for this app in the gate, and
+    nothing here reads the hint.
+    """
+    monkeypatch.setattr(auth, "TRUSTED_PROXIES", auth._parse_trusted("127.0.0.1"))
+    for sub, hint in (("01BOSS", "admin"), ("01TYPO", "administrator")):
+        user = auth.user_from_gateway(
+            FakeRequest({"X-Borant-Sub": sub, "X-Borant-Hint": hint}), db
+        )
+        assert not user.is_admin
 
 
 def test_no_sub_header_is_simply_nobody(db, gateway):

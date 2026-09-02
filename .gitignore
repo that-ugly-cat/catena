@@ -20,3 +20,7 @@ data/
 
 # Third-party source cloned at deploy time (see DEPLOY.md)
 vendor/
+
+# SPEC.md stays local: it carries the security analysis and the discarded
+# options, which do not belong in a public repository (house convention).
+SPEC.md

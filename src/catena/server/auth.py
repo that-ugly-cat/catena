@@ -140,14 +140,15 @@ def user_from_gateway(request: Request, db: Session) -> User | None:
     # remain a working way back in when the gate is down, and a row with no
     # password is not a way back.
     #
-    # The gate may hint `admin`. In catena that flag opens nothing yet — there
-    # is no admin panel — so honouring it is cheap and keeps parity with the
-    # other tools. An unrecognised hint is a typo, not a role: it grants
-    # nothing and it makes noise.
-    hint = (request.headers.get("x-borant-hint", "") or "").strip().lower()
-    is_admin = hint == "admin"
-    if hint and not is_admin:
-        log.warning("gateway: hint %r is not a role in this app, ignored", hint)
+    # X-Borant-Hint is deliberately ignored, and no role vocabulary is declared
+    # for this app in the gate. A vocabulary is a contract about what the code
+    # actually reads: catena has no admin surface, so honouring `admin` here
+    # would set a flag that opens nothing — the same silent mismatch that had
+    # one tool offering a role its code quietly downgraded. If an admin surface
+    # ever exists, the vocabulary gets declared in the same commit that reads it.
+    hint = (request.headers.get("x-borant-hint", "") or "").strip()
+    if hint:
+        log.info("gateway: hint %r ignored — catena declares no roles", hint)
 
     user = User(
         email=email,
@@ -155,12 +156,11 @@ def user_from_gateway(request: Request, db: Session) -> User | None:
         password_hash=hash_password(secrets.token_urlsafe(32)),
         borant_sub=sub,
         is_active=True,
-        is_admin=is_admin,
     )
     db.add(user)
     db.commit()
     db.refresh(user)
-    log.info("gateway: new profile for %s (%s), admin=%s", email, sub, is_admin)
+    log.info("gateway: new profile for %s (%s)", email, sub)
     return user
 
 
