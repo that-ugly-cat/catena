@@ -146,12 +146,26 @@ platform, and then never answers — a failure that reads like networking and is
 not. Building also fetches current translators, which is what resolving a URL
 depends on.
 
-Clone the source once, with its submodules, where the compose file expects it:
-
 ```bash
-git clone --recurse-submodules https://github.com/zotero/translation-server.git   /opt/apps/catena/vendor/translation-server
-cd /opt/apps/catena && docker compose up -d --build
+cd /opt/apps/catena && ./vendor-translation.sh && docker compose up -d --build
 ```
+
+`vendor-translation.sh` clones the source with its submodules — they are not
+optional, the code loads `modules/translate` at runtime — and then fixes the
+second thing that bites on this machine.
+
+**Its `package.json` declares one dependency as a git URL**, and inside the
+build container git has no credentials, so `npm install` goes out anonymously
+and gets the same 401 that bites `git clone` here:
+
+```
+git ls-remote https://git@github.com/zotero/wicked-good-xpath.git
+error: RPC failed; HTTP 401
+```
+
+The script rewrites that dependency to the codeload tarball of the same pinned
+commit — plain HTTPS rather than git, so the throttle does not apply. Re-run it
+to update the translators.
 
 `vendor/` is git-ignored, so it survives `git pull` and is never committed.
 
