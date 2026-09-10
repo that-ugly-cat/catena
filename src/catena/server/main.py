@@ -21,8 +21,11 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+import shutil
+import tempfile
+
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from mcp.server.transport_security import TransportSecuritySettings
@@ -60,6 +63,7 @@ PUBLIC_PATHS = [
     "/",             # the showcase, which never looks at its reader
     "/healthz",
     "/static/*",
+    "/guide",        # the user guide: read by people deciding whether to ask
     "/login",        # in gateway mode the app turns these away itself
     "/logout",
     "/mcp",          # its own per-user key; a model client has no cookie
@@ -290,6 +294,92 @@ def home(
     )
     cred = db.query(ZoteroCredential).filter(ZoteroCredential.user_id == user.id).first()
     return render(request, "app.html", user=user, bindings=bindings, cred=cred)
+
+
+# --- inject: field codes into a .docx, without a terminal --------------------
+
+MAX_DOCX_BYTES = 25 * 1024 * 1024
+
+
+@app.post("/app/inject")
+async def inject_docx(
+    request: Request,
+    file: UploadFile = File(...),
+    plan: str = Form(...),
+    user: User = Depends(get_current_user),
+):
+    """Place the plan's field codes into an uploaded manuscript, and hand it back.
+
+    The CLI exists and stays: on a laptop the document never leaves the machine,
+    which is the right default for an unpublished draft carrying co-authors'
+    tracked changes and comments. But it needs Python and a terminal, and most
+    of the people this is for have neither — so the same function runs here, on
+    a copy that lives in a temporary directory for the duration of one request
+    and is deleted with it. Nothing is stored: no document row, no output kept
+    for a second download, and therefore no second chance either.
+
+    The report travels in headers rather than in a page, because a page would
+    need the file to survive the request in order to offer it for download.
+    """
+    import zipfile
+
+    from ..inject import inject as inject_fields
+
+    # Errors answer in JSON, not through the app's HTTPException handler: that
+    # one renders error.html, which is right for a page and useless to the fetch
+    # on the form, where the reason would arrive as a mouthful of markup.
+    def refuse(status: int, detail: str) -> JSONResponse:
+        return JSONResponse({"detail": detail}, status_code=status)
+
+    try:
+        parsed = json.loads(plan)
+    except json.JSONDecodeError as e:
+        return refuse(400, f"the plan is not valid JSON: {e}")
+    fields = (parsed or {}).get("fields") or {}
+    if not fields:
+        return refuse(400, "the plan has no fields to place")
+    prefs = [tuple(x) for x in (parsed.get("prefs") or [])] or None
+    visible = parsed.get("visible") or {}
+
+    payload = await file.read()
+    if not payload:
+        return refuse(400, "empty upload")
+    if len(payload) > MAX_DOCX_BYTES:
+        return refuse(413, f"the file is larger than {MAX_DOCX_BYTES // (1024 * 1024)} MB")
+
+    name = Path(file.filename or "manuscript.docx").name
+    stem = Path(name).stem or "manuscript"
+    with tempfile.TemporaryDirectory(prefix="catena-") as tmp:
+        src = Path(tmp) / name
+        out = Path(tmp) / f"{stem}-catena.docx"
+        src.write_bytes(payload)
+        try:
+            report = inject_fields(src, fields, out=out, prefs=prefs, visible=visible)
+        except zipfile.BadZipFile:
+            # A .docx is a zip. Something that is not one is a wrong file, not a
+            # server fault, and saying which is the whole difference between a
+            # 400 and a 500 in somebody's afternoon.
+            return refuse(400, "this file is not a .docx (it is not even a zip archive)")
+        except ValueError as e:
+            return refuse(400, str(e))
+        result = out.read_bytes()
+
+    headers = {
+        "Content-Disposition": f'attachment; filename="{stem}-catena.docx"',
+        # Read by the page to show what happened; a marker catena could not
+        # place is left as the author typed it, and saying so is the point.
+        "X-Catena-Placed": str(len(report.placed)),
+        "X-Catena-Prefs": str(report.prefs_written),
+        "X-Catena-Skipped": ", ".join(f"{s.marker}: {s.reason}" for s in report.skipped),
+        "X-Catena-Unmatched": ", ".join(report.unmatched),
+        "Access-Control-Expose-Headers": ("X-Catena-Placed, X-Catena-Prefs, "
+                                          "X-Catena-Skipped, X-Catena-Unmatched"),
+    }
+    return Response(
+        result,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers=headers,
+    )
 
 
 # --- profile: the Zotero key and the MCP keys --------------------------------

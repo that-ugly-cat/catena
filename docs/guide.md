@@ -76,12 +76,12 @@ Two checks run inside the plan and are worth reading rather than skipping. The *
 Run this on your own machine, on the file itself. It is read-only, needs no network and no credentials:
 
 ```
-python -m catena.cli discover draft.docx
+catena discover draft.docx
 ```
 
 `discover` reads the citations as the author typed them — `(Rosato et al., 2008)`, `(Bullo & Hearn, 2024; Hudson, 2021)` — finds the hand-made reference list at the end, and attaches each in-text citation to its entry. It reports how many carry a DOI, ISBN or URL and can therefore be resolved, how many have no identifier and need a person, and which citations matched no entry at all. It resolves nothing by itself: a citation it cannot read is one somebody looks at, never one catena guesses.
 
-`python -m catena.cli audit manuscript.docx` is the other read-only pass, for a document that already contains Zotero fields. It reports duplicate surrogates (the defect above, and the nastiest of the lot because the document looks correct), URIs tied to a local Zotero profile — those resolve on exactly one machine in the world and are orphans to every co-author — items with no URI or no embedded data, DOIs that are not DOIs, missing bibliography, footnote styles, and tracked changes that an injection has to preserve. It exits `0` clean, `1` with at least one error, `2` on a file it cannot read. Worth running on any manuscript you inherit, before you touch it.
+`catena audit manuscript.docx` is the other read-only pass, for a document that already contains Zotero fields. It reports duplicate surrogates (the defect above, and the nastiest of the lot because the document looks correct), URIs tied to a local Zotero profile — those resolve on exactly one machine in the world and are orphans to every co-author — items with no URI or no embedded data, DOIs that are not DOIs, missing bibliography, footnote styles, and tracked changes that an injection has to preserve. It exits `0` clean, `1` with at least one error, `2` on a file it cannot read. Worth running on any manuscript you inherit, before you touch it.
 
 ## 7. Field codes, markers, and the injector
 
@@ -98,8 +98,36 @@ You place them by typing a **marker** in the draft where the citation belongs �
 ```
 
 ```
-python -m catena.cli inject draft.docx --plan plan.json --out draft-fields.docx
+catena inject draft.docx --plan plan.json --out draft-fields.docx
 ```
+
+**Getting the injector.** It is a command-line tool, and it has no dependencies
+at all — the whole of `audit`, `discover` and `inject` is Python's standard
+library, which is why installing it is one line:
+
+```
+uv tool install git+https://github.com/that-ugly-cat/catena
+```
+
+`pipx install git+https://github.com/that-ugly-cat/catena` does the same if you
+have pipx rather than uv. Either gives you the `catena` command; Python 3.11 or
+newer is the only requirement. Inside a clone of the repository,
+`python -m catena.cli …` works without installing anything.
+
+**Or place them from the browser, without a terminal.** The app has an upload
+form under **Place the references**: the manuscript, the plan, and you get the
+copy back. It runs the same function as the command above and reports the same
+counts — how many fields were placed, what was skipped, what was not in the
+plan.
+
+The difference is not convenience, it is where the document goes, so choose
+deliberately. On the command line the manuscript never leaves your machine,
+which is the right default for an unpublished draft carrying co-authors' tracked
+changes and their comments. Through the form it is uploaded, held in a temporary
+folder for the length of that one request, and deleted with it — nothing is
+stored, no document row, no output kept for a second download. Nothing about
+that upload is retained, and nothing about it is logged beyond the fact that a
+request happened.
 
 It never writes in place — the input is somebody's manuscript — and it guesses nothing: a marker with no entry in the plan is left exactly as it was typed and reported, and the command exits `1` when anything was skipped or not found. The rules that follow from what a real document is like:
 
@@ -148,7 +176,9 @@ catena holds a person in four places, and one of them deserves a straight answer
 
 Holding a Zotero API key means catena, and anyone with access to its database, can read every library that key reaches and write to the deposit group. That is the reason the perimeter check in §2 refuses a wide key before it is ever saved — a key that can write neither to your personal library nor to arbitrary groups does limited damage if it escapes. It is not a reason to leave one lying around: revoke it on zotero.org when a project ends, and remember that an MCP key is a second door onto the same reach.
 
-Two things that do not happen. **Your manuscript never reaches the server**: the audit, the discovery and the injection all run on your own machine, and the server only ever sees identifiers and item keys. And **the items you add are not ours**: they live in your own Zotero account, and they are deleted from Zotero.
+**Your manuscript reaches the server only if you put it there.** On the command line it does not: the audit, the discovery and the injection all run on your own machine, and the server sees identifiers and item keys and nothing else. The upload form in the app is the one exception, and it is opt-in by construction — the file you choose is held in a temporary folder for the length of that request and deleted with it, with no document row, no stored output and therefore no second download. If a draft is sensitive enough that even a transient copy on somebody else's machine is the wrong answer, use the command line: it does the same job and asks nothing of the network.
+
+And **the items you add are not ours**: they live in your own Zotero account, and they are deleted from Zotero.
 
 What does leave the machine: identifiers you resolve go to Zotero's API and, through the translation server, to the source that owns them — resolving a URL means that page is fetched. Removing somebody from Borant ID does not remove them from here; a deletion request is served by deleting these rows.
 

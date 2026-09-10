@@ -154,6 +154,26 @@ class Zot:
                 return c
         return None
 
+    @staticmethod
+    def _paged(z: zotero.Zotero, rows: list[dict], limit: int) -> list[dict]:
+        """Keep following the 'next' link until `limit` rows are in hand.
+
+        Zotero's API answers one page at a time, and `PAGE` is its ceiling per
+        request. Without this, asking for more than a page silently returned a
+        page: `ingest` builds the duplicate index of a plan from
+        `collection_items(..., 500)`, so on a collection larger than one page a
+        paper already sitting in it came back as `new` and was added a second
+        time. The unique row on (binding, identifier) does not catch that — it
+        catches the same identifier twice, not the same paper reached by a
+        different one.
+        """
+        while len(rows) < limit:
+            more = z.follow()
+            if not more:
+                break
+            rows = rows + more
+        return rows[:limit]
+
     def collection_items(self, library: str, collection_key: str, limit: int = 200) -> list[dict]:
         """Top-level items of a collection, with CSL-JSON attached.
 
@@ -164,13 +184,14 @@ class Zot:
         """
         z = self._client(library)
         z.add_parameters(include="csljson,data", limit=min(limit, PAGE))
-        rows = z.collection_items_top(collection_key)
-        return [self._shape(library, r) for r in rows[:limit]]
+        rows = self._paged(z, z.collection_items_top(collection_key), limit)
+        return [self._shape(library, r) for r in rows]
 
     def search(self, library: str, query: str, limit: int = 25) -> list[dict]:
         z = self._client(library)
         z.add_parameters(q=query, include="csljson,data", limit=min(limit, PAGE))
-        return [self._shape(library, r) for r in z.items()[:limit]]
+        rows = self._paged(z, z.items(), limit)
+        return [self._shape(library, r) for r in rows]
 
     def items(self, library: str, keys: list[str]) -> list[dict]:
         """Specific items by key, in the order asked for; missing ones absent.

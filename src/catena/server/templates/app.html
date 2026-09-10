@@ -36,4 +36,78 @@
     {% endfor %}
   </tbody>
 </table>
+<h1 style="margin-top:2.2rem">Place the references</h1>
+
+<p class="small muted">
+  The plan comes from the conversation: the assistant assembles it with
+  <code>citation_field</code>, <code>bibliography_field</code> and
+  <code>document_prefs</code>, and it is the same JSON the command line takes
+  with <code>--plan</code>. Upload the manuscript, paste the plan, and you get a
+  <em>copy</em> back with the field codes in place — then one Refresh in Word
+  fills in the visible text and numbers a numeric style.
+</p>
+
+<p class="small muted">
+  The upload lives in a temporary folder for the length of this one request and
+  is deleted with it: nothing is stored here, which also means there is no
+  second download. If you would rather the document never left your machine,
+  the command line does the same job locally — see the
+  <a href="/guide">user guide</a>.
+</p>
+
+<form id="inject-form" class="stack" style="max-width:44rem">
+  <label class="small" for="inject-file">Manuscript (.docx, max 25 MB)</label>
+  <input id="inject-file" type="file" name="file" accept=".docx" required>
+
+  <label class="small" for="inject-plan" style="margin-top:.7rem">Plan (JSON)</label>
+  <textarea id="inject-plan" name="plan" rows="8" required spellcheck="false"
+            placeholder='{"fields": {"[@Rosato2008]": "ADDIN ZOTERO_ITEM CSL_CITATION ..."}}'></textarea>
+
+  <button type="submit" class="btn" style="margin-top:.8rem">Place and download</button>
+</form>
+
+<div id="inject-report" class="small" style="margin-top:.9rem"></div>
+
+<script>
+document.getElementById("inject-form").addEventListener("submit", async function (ev) {
+  ev.preventDefault();
+  const out = document.getElementById("inject-report");
+  const form = new FormData(ev.target);
+  out.textContent = "Placing…";
+  let res;
+  try {
+    res = await fetch("/app/inject", { method: "POST", body: form });
+  } catch (e) {
+    out.textContent = "The request did not complete: " + e;
+    return;
+  }
+  if (!res.ok) {
+    let detail = res.status + "";
+    try { detail = (await res.json()).detail || detail; } catch (e) {}
+    out.innerHTML = '<span class="badge badge-bad">Refused</span> ' + detail;
+    return;
+  }
+  // The document is never on the server after the response, so the download is
+  // built from the body we already hold.
+  const blob = await res.blob();
+  const name = (res.headers.get("content-disposition") || "").match(/filename="([^"]+)"/);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name ? name[1] : "manuscript-catena.docx";
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(a.href);
+
+  const placed = res.headers.get("X-Catena-Placed") || "0";
+  const prefs = res.headers.get("X-Catena-Prefs") || "0";
+  const skipped = res.headers.get("X-Catena-Skipped") || "";
+  const unmatched = res.headers.get("X-Catena-Unmatched") || "";
+  let html = '<span class="badge badge-ok">' + placed + ' placed</span>';
+  if (prefs !== "0") html += ' <span class="muted">ZOTERO_PREF: ' + prefs + ' properties</span>';
+  if (skipped) html += '<div style="margin-top:.4rem"><strong>Skipped</strong> — ' + skipped + '</div>';
+  if (unmatched) html += '<div style="margin-top:.4rem"><strong>Not in the plan</strong> — ' + unmatched + '</div>';
+  if (skipped || unmatched) html += '<div class="muted" style="margin-top:.4rem">Nothing was guessed: '
+    + 'a marker catena could not place is left exactly as it was written.</div>';
+  out.innerHTML = html;
+});
+</script>
 {% endblock %}
