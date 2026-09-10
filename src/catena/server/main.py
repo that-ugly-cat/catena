@@ -247,7 +247,11 @@ def guide(request: Request):
     repository, so the page cannot drift from what ships.
     """
     import markdown
-    md_text = open(HERE.parents[2] / "docs" / "guide.md", encoding="utf-8").read()
+    # Relative to the working directory, not to this module: the package is
+    # installed into site-packages, so a module-relative path leaves the repo.
+    # /app in the container (WORKDIR, where the Dockerfile copies docs), the
+    # repository root in development.
+    md_text = open("docs/guide.md", encoding="utf-8").read()
     return templates.TemplateResponse(request, "guide.html", {
         "guide_html": markdown.markdown(md_text, extensions=["tables", "fenced_code"]),
         "app_name": "catena",
