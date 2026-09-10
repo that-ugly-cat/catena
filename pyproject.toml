@@ -19,6 +19,7 @@ server = [
   "python-jose[cryptography]",
   "pyzotero>=1.15.1",
   "mcp>=2.0,<3",
+  "markdown",
 ]
 
 # TestClient needs httpx; keeping it declared means `--extra dev` is the whole

@@ -5,6 +5,8 @@ WORKDIR /app
 # Dependencies before the code: they change rarely, so the layer gets reused.
 COPY pyproject.toml README.md ./
 COPY src ./src
+# The user guide is served from /guide and lives at the repo root.
+COPY docs ./docs
 RUN pip install --no-cache-dir --prefer-binary ".[server]"
 
 # Both operator scripts have to be inside the image: DEPLOY.md reaches them
