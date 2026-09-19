@@ -9,17 +9,22 @@ dependencies = []
 
 [project.optional-dependencies]
 # Il server e l'ingest arrivano dopo: l'audit non ha dipendenze di proposito.
+# Pin esatti dal 19 set 2026. Erano nomi nudi fino al trasloco del VPS, che ha
+# reso visibile la differenza: ricostruire su una macchina nuova non e' copiare
+# un'immagine, e' ri-risolvere ogni nome contro l'indice di quel giorno. Le
+# versioni qui sotto sono quelle provate funzionanti sulla build Infomaniak del
+# 19 set 2026; si alzano di proposito, non per caso.
 server = [
-  "fastapi",
-  "uvicorn[standard]",
-  "sqlalchemy",
-  "jinja2",
-  "python-multipart",
-  "bcrypt",
-  "python-jose[cryptography]",
-  "pyzotero>=1.15.1",
-  "mcp>=2.0,<3",
-  "markdown",
+  "fastapi==0.141.1",
+  "uvicorn[standard]==0.53.0",
+  "sqlalchemy==2.0.54",
+  "jinja2==3.1.6",
+  "python-multipart==0.0.32",
+  "bcrypt==5.0.0",
+  "python-jose[cryptography]==3.5.0",
+  "pyzotero==1.15.1",
+  "mcp==2.2.0",
+  "markdown==3.10.3",
 ]
 
 # TestClient needs httpx; keeping it declared means `--extra dev` is the whole
