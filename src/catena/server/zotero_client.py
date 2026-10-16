@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pyzotero import zotero
 
 from .models import ZoteroCredential
+from .records import field_of
 from .zotero_key import ZoteroError, fetch_current_key
 
 RE_LIBRARY = re.compile(r"^(users|groups)/(\d+)$")
@@ -217,6 +218,30 @@ class Zot:
             found[key] = self._shape(library, row)
         return [found[k] for k in keys if k in found]
 
+    # -- item types ------------------------------------------------------------
+
+    # Zotero's schema is global and changes with a client release, not per key:
+    # one fetch per process is enough, and it keeps a plan of forty caller
+    # records from costing eighty requests.
+    _fields: dict[str, list[str]] = {}
+    _creators: dict[str, list[str]] = {}
+
+    def fields(self, item_type: str) -> list[str]:
+        """The fields an item type accepts, as Zotero names them."""
+        if item_type not in Zot._fields:
+            z = zotero.Zotero("0", "user", self.api_key)
+            Zot._fields[item_type] = [f["field"] for f in z.item_type_fields(item_type)]
+        return Zot._fields[item_type]
+
+    def creator_types(self, item_type: str) -> list[str]:
+        """The creator types an item type accepts, primary first."""
+        if item_type not in Zot._creators:
+            z = zotero.Zotero("0", "user", self.api_key)
+            Zot._creators[item_type] = [
+                c["creatorType"] for c in z.item_creator_types(item_type)
+            ]
+        return Zot._creators[item_type]
+
     @staticmethod
     def _shape(library: str, row: dict) -> dict:
         data = row.get("data") or {}
@@ -230,10 +255,12 @@ class Zot:
             "key": row.get("key"),
             "library": library,
             "type": data.get("itemType"),
-            "title": data.get("title") or "",
+            "title": field_of(data, "title") or "",
             "first_author": first,
             "year": (data.get("date") or "")[:4] or None,
             "doi": data.get("DOI") or None,
+            "isbn": data.get("ISBN") or None,
+            "url": data.get("url") or None,
             "csljson": csl,
         }
 

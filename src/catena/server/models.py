@@ -173,7 +173,7 @@ class IngestEvent(Base):
     id = Column(Integer, primary_key=True)
     binding_id = Column(Integer, ForeignKey("bindings.id"), nullable=False)
     identifier = Column(String, nullable=False)
-    identifier_kind = Column(String, nullable=False)  # doi | pmid | arxiv | isbn | url
+    identifier_kind = Column(String, nullable=False)  # doi | pmid | arxiv | isbn | url | manual
     item_key = Column(String, nullable=True)
     item_library = Column(String, nullable=True)
     source = Column(String, nullable=False)  # manual | contrarian

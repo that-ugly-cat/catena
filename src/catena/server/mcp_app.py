@@ -509,21 +509,59 @@ def resolve_identifier(ctx, identifier: str) -> dict:
 
 @mcp.tool()
 @_tool
-def plan_ingest(ctx, label: str, identifiers: list[str], hints: dict | None = None) -> dict:
+def plan_ingest(
+    ctx,
+    label: str,
+    identifiers: list[str] | None = None,
+    hints: dict | None = None,
+    entries: list[dict] | None = None,
+) -> dict:
     """Resolve a batch, decide nothing, and write nothing.
 
     One confirmation on a plan you can read whole beats forty blind ones, which
     is what a per-item confirmation becomes on a real draft. Each row says what
-    would happen — new, already present, ambiguous, or unresolved — and carries
-    the warnings that should give a person pause.
+    would happen — new, already present, ambiguous, unresolved, or invalid — and
+    carries the warnings that should give a person pause.
 
     `hints` maps an identifier to the surname the draft attached to it. That name
     resolves nothing; it *checks*. If the DOI comes back with another author's
     paper, the identifier was copied wrong, and this is the cheapest place in the
     whole system to notice.
+
+    `entries` is the full form, for sources translators read badly or not at
+    all — newspaper pages, PDF reports, laws, lectures, books by ISBN. Each is
+    {"id", "hint", "ref", "ref_key", "item_type", "metadata"}, all optional
+    but an entry needs an id, or item_type and metadata:
+
+    - `id`: DOI, PMID, arXiv id, ISBN or URL; leave it out when there is none.
+    - `ref_key`: your own key for the source (e.g. "15-04"), echoed back in
+      the plan and in apply_ingest's result next to the Zotero key.
+    - `ref`: the draft's own reference text, shown beside what resolved.
+    - `item_type`: a Zotero item type (newspaperArticle, report, statute,
+      book, bookSection, presentation, videoRecording…), winning over the
+      translator's.
+    - `metadata`: fields that win over the translator, or make the item when
+      nothing resolves: title, authors, editors, date, container, publisher,
+      place, url, accessed, isbn, doi, number, kind, pages, volume, issue,
+      edition, series, language, abstract, short_title, meeting, and
+      `fields` for any other Zotero field by its own name. A person in
+      authors is "Family, Given"; a string without a comma is an
+      institution. catena maps container/publisher/number onto the field the
+      type has (websiteTitle, institution, publicLawNumber…).
+
+    Only metadata somebody checked against the source belongs here, never a
+    title recalled from memory. Every caller field is listed in the row, as
+    `overridden` (with the translator's value beside it) or `asserted`, and
+    the item goes into Zotero tagged catena:caller-metadata. A DOI that does
+    not resolve is not rescued by metadata: it was probably copied wrong.
     """
     b = ctx.binding(label)
-    rows = ing.build_plan(ctx.zot(), Translation(TRANSLATION_URL), b, identifiers, hints or {})
+    if not identifiers and not entries:
+        return _fail("nothing to plan: give identifiers, entries, or both")
+    rows = ing.build_plan(
+        ctx.zot(), Translation(TRANSLATION_URL), b, identifiers or [], hints or {},
+        entries=entries or [],
+    )
     plan = ing.save_plan(ctx.db, b, rows)
     counts = {}
     for r in rows:
@@ -549,8 +587,9 @@ def apply_ingest(ctx, plan_id: int, force_ambiguous: bool = False) -> dict:
     guarded by a unique row keyed on (binding, identifier) — so a retried call
     recognises what it already did instead of adding it twice.
 
-    `force_ambiguous` adds the rows that matched an existing title without
-    sharing an identifier. Only say yes to that when a person has looked.
+    `force_ambiguous` adds the rows that matched an existing title or URL
+    without sharing an identifier. Only say yes to that when a person has
+    looked. Rows marked `invalid` or `unresolved` are never written.
     """
     plan = ctx.db.query(IngestPlan).filter(IngestPlan.id == plan_id).first()
     if not plan:
@@ -564,17 +603,28 @@ def apply_ingest(ctx, plan_id: int, force_ambiguous: bool = False) -> dict:
 
 @mcp.tool()
 @_tool
-def add_item(ctx, label: str, identifier: str, hint: str = "") -> dict:
-    """Add one identifier to a binding's deposit collection. Confirm first.
+def add_item(
+    ctx,
+    label: str,
+    identifier: str = "",
+    hint: str = "",
+    item_type: str = "",
+    metadata: dict | None = None,
+    ref_key: str = "",
+) -> dict:
+    """Add one source to a binding's deposit collection. Confirm first.
 
     A plan of one, applied. For more than a couple of items use plan_ingest, so
     that what gets confirmed is a list somebody read rather than a sequence of
-    isolated yeses.
+    isolated yeses. `item_type` and `metadata` work as in plan_ingest's entries:
+    they win over the translator, or make the item when there is no identifier.
     """
     b = ctx.binding(label)
+    entry = {"id": identifier, "hint": hint, "ref_key": ref_key,
+             "item_type": item_type, "metadata": metadata}
     rows = ing.build_plan(
-        ctx.zot(), Translation(TRANSLATION_URL), b, [identifier],
-        {identifier: hint} if hint else {},
+        ctx.zot(), Translation(TRANSLATION_URL), b, [],
+        entries=[{k: v for k, v in entry.items() if v}],
     )
     if rows[0].outcome != "new":
         return {

@@ -62,14 +62,37 @@ Two behaviours worth knowing before you cite anything:
 
 ## 5. Adding references
 
-Every identifier goes up a ladder — DOI, arXiv, ISBN, URL, PMID — and metadata comes from **Zotero's own translators**, the ones behind the connector button, or it does not come at all. catena will not build an item from a title, because an item assembled from memory looks exactly like a real one, which makes it the only error here that nobody can see. The URL rung matters more than it looks: measured on a real library of some 16,000 citable items, DOIs cover 93% of journal articles and roughly one citable item in five has no DOI at all.
+Every identifier goes up a ladder — DOI, arXiv, ISBN, URL, PMID — and metadata comes from **Zotero's own translators**, the ones behind the connector button, or from a record you checked against the source yourself (below). catena will not build an item from a title, because an item assembled from memory looks exactly like a real one, which makes it the only error here that nobody can see. The URL rung matters more than it looks: measured on a real library of some 16,000 citable items, DOIs cover 93% of journal articles and roughly one citable item in five has no DOI at all.
 
 - `resolve_identifier` previews what one identifier turns into. It writes nothing.
-- `plan_ingest` resolves a batch and **decides nothing**. Each row comes back as `new`, `present` (already in the collection), `ambiguous` (same title, no shared identifier) or `unresolved`, with the warnings that should give you pause. One confirmation on a plan you can read whole beats forty blind ones, which is what a per-item confirmation becomes on a real draft.
+- `plan_ingest` resolves a batch and **decides nothing**. Each row comes back as `new`, `present` (already in the collection, or earlier in the same plan), `ambiguous` (same title or URL, no shared identifier), `unresolved` or `invalid` (metadata Zotero would refuse), with the warnings that should give you pause. One confirmation on a plan you can read whole beats forty blind ones, which is what a per-item confirmation becomes on a real draft.
 - `apply_ingest` executes **exactly that plan, once**. A plan already applied is refused rather than replayed, and every write is guarded by a unique row on (binding, identifier), so a retried call recognises what it already did instead of adding a second copy. `ambiguous` rows are skipped unless you explicitly force them — say yes to that only after a person has looked.
 - `add_item` is a plan of one, for a single reference. `add_verified` adds a paper **together with the reason it is cited**: verbatim passages from a verification arrive as a child note on the Zotero item, plus a tag carrying the bearing (`catena:supports`, `catena:contradicts`, `catena:qualifies`). A paper that contradicts you belongs in the bibliography — that is half the point of verifying — and the tag is there so that it is never cited as though it agreed.
 
+Duplicates are looked for by DOI, then ISBN, then URL, then title. An ISBN or a URL counts as a match only when the titles agree as well, because every chapter of an edited volume carries the book's ISBN and, often, the publisher's page as its URL. URLs are compared without scheme, `www.`, trailing slash, fragment or tracking parameters; the rest of the query is kept, since EUR-Lex names its documents there. The whole collection is read, however large.
+
 Two checks run inside the plan and are worth reading rather than skipping. The **author cross-check**: if your draft attaches a surname to an identifier, that surname resolves nothing but checks everything — a DOI that comes back with someone else's paper was copied wrong, and the plan is the cheapest place in the system to notice. And the **item type warning**: CSL formats by type, so a report filed as a webpage comes out wrong in every style; translators are least reliable on `document`, `webpage`, `report`, `manuscript` and `presentation`, so those are put in front of you instead of trusted.
+
+### Sources without a DOI
+
+Newspaper pages, institutional pages, PDF reports, laws, lectures, videos, books whose ISBN no catalogue knows: translators read these badly or not at all. A newspaper article comes back as a `webpage`, a PDF usually as nothing. For these, `plan_ingest` takes `entries` beside the plain identifiers. Each entry may carry:
+
+- `id` — a DOI, PMID, arXiv id, ISBN or URL, or nothing when there is none;
+- `item_type` — the Zotero type it should be (`newspaperArticle`, `report`, `statute`, `book`, `bookSection`, `presentation`, `videoRecording`…);
+- `metadata` — `title`, `authors`, `editors`, `date`, `container`, `publisher`, `place`, `url`, `accessed`, `isbn`, `doi`, `number`, `kind`, `pages`, `volume`, `issue`, `edition`, `series`, `language`, `abstract`, `short_title`, `meeting`, and `fields` for any other Zotero field by its own name;
+- `ref_key` — your own key for the source, such as `15-04`, returned beside the Zotero key so a notes file can be matched to the library; and `ref`, your reference text, shown in the plan for comparison.
+
+catena maps the neutral words onto the field each type really has: `container` is a webpage's `websiteTitle` and a chapter's `bookTitle`, `publisher` is a report's `institution`, `title`, `date` and `number` are a statute's `nameOfAct`, `dateEnacted` and `publicLawNumber`. Write a person as `"Family, Given"`; a name without a comma is an institution. A field the type does not have is refused **in the plan**, with the valid names listed, rather than by Zotero halfway through an apply.
+
+What happens depends on what resolves:
+
+- **The translator answers.** Your fields win, one by one, and the row lists each one: `overridden` with the translator's value beside yours, `asserted` where it had none. Changing the type carries values across where Zotero has an equivalent (`websiteTitle` to `publicationTitle`) and lists in `dropped` what has nowhere to go. If your title disagrees with the translator's, the row says so: the URL is probably the book's page and not the chapter's, or the ISBN belongs to another edition.
+- **Nothing answers.** A URL or an ISBN that no translator reads becomes an item from your metadata alone, with the URL or ISBN kept on it. A PDF is the common case; catena does not download it. A source with no identifier at all gets a stable synthetic one, `ref:` plus a hash of title, year and first creator, so a retried call still finds the item it already added.
+- **A DOI, PMID or arXiv id does not resolve.** Your metadata does not rescue it. Registered identifiers resolve, so one that does not was almost certainly copied wrong, and dressing it in correct metadata would file a wrong DOI under a right-looking reference. Fix it, or drop the id.
+
+Only put metadata here that somebody has checked against the source, never a title remembered rather than read. Every item that carries any of your fields goes into Zotero tagged **`catena:caller-metadata`**, so the references a person vouched for, rather than a translator, can be found and looked at again before anything goes to print. When a caller record has a URL and no access date, the date of the ingest is filled in, and the row lists it under `defaulted`.
+
+`add_item` takes the same `item_type` and `metadata` for a single source.
 
 ## 6. Reading a draft that already has citations
 

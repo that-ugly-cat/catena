@@ -27,6 +27,8 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
+from .records import field_of
+
 DEFAULT_URL = "http://translation:1969"
 TIMEOUT = 30
 
@@ -179,12 +181,15 @@ def first_author(item: dict) -> str | None:
 
 def brief(item: dict) -> dict:
     """What a person needs to see before agreeing to add this."""
+    # By family rather than by field name: a statute's title is `nameOfAct`, a
+    # webpage's container is `websiteTitle`, and a plan that showed them empty
+    # would invite a person to "fix" what is already there.
     return {
         "type": item.get("itemType"),
-        "title": (item.get("title") or "")[:140],
+        "title": (field_of(item, "title") or "")[:140],
         "first_author": first_author(item),
-        "year": (item.get("date") or "")[:4] or None,
-        "container": item.get("publicationTitle") or item.get("publisher") or None,
+        "year": (field_of(item, "date") or "")[:4] or None,
+        "container": field_of(item, "container") or field_of(item, "publisher") or None,
         "doi": item.get("DOI") or None,
         "isbn": item.get("ISBN") or None,
         "url": item.get("url") or None,

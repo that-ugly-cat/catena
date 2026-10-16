@@ -93,7 +93,11 @@ and `document_prefs` supply the other two pieces a document needs.
 Ingesting, after the user confirms: `resolve_identifier` previews what a DOI,
 PMID, arXiv id, ISBN or URL turns into; `plan_ingest` resolves a batch and
 decides nothing; `apply_ingest` executes exactly that plan, once; `add_item` is
-a plan of one; and `add_verified` adds a paper together with the reason it is
+a plan of one. For sources translators read badly or not at all (newspaper
+pages, PDF reports, laws, books by an ISBN nobody indexed), `plan_ingest` and
+`add_item` take an item type and checked metadata that win over the translator,
+or make the item alone; every such field is listed in the plan, and the item is
+tagged `catena:caller-metadata` (guide §5). And `add_verified` adds a paper together with the reason it is
 cited — Contrarian's verbatim passages as a child note, and a tag carrying the
 bearing, `catena:supports` or `catena:contradicts`.
 
