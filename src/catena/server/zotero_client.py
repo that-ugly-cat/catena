@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pyzotero import zotero
 
 from .models import ZoteroCredential
-from .records import field_of
+from .records import field_of, year_of
 from .zotero_key import ZoteroError, fetch_current_key
 
 RE_LIBRARY = re.compile(r"^(users|groups)/(\d+)$")
@@ -257,7 +257,7 @@ class Zot:
             "type": data.get("itemType"),
             "title": field_of(data, "title") or "",
             "first_author": first,
-            "year": (data.get("date") or "")[:4] or None,
+            "year": year_of(field_of(data, "date")),
             "doi": data.get("DOI") or None,
             "isbn": data.get("ISBN") or None,
             "url": data.get("url") or None,

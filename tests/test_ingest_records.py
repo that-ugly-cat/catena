@@ -135,6 +135,30 @@ def test_a_field_with_no_room_in_the_new_type_is_listed_not_lost_silently():
     assert any("nowhere to go" in w for w in rows[0].warnings)
 
 
+def test_the_translators_bookkeeping_is_not_reported_as_dropped():
+    """Seen live: every type change warned about `key, version`, which are stripped anyway."""
+    tr = StubTranslation({REGISTER_URL: dict(REGISTER, key="TXX2JJ9T", version=0,
+                                             websiteType="")})
+    rows = plan(tr, [{"id": REGISTER_URL, "item_type": "newspaperArticle"}])
+    assert rows[0].dropped == {}
+    assert not any("nowhere to go" in w for w in rows[0].warnings)
+    sent = ing._to_zotero_item(rows[0], "BBB")
+    assert "key" not in sent and "version" not in sent
+
+
+@pytest.mark.parametrize("date,year", [
+    ("2006-06-26T19:12:47.000Z", "2006"),
+    ("10/2006", "2006"),
+    ("7/2010", "2010"),
+    ("June 1964", "1964"),
+    ("12/1/1958", "1958"),
+    ("", None),
+    (None, None),
+])
+def test_the_year_is_found_whatever_the_date_looks_like(date, year):
+    assert rec.year_of(date) == year
+
+
 def test_every_caller_field_is_shown_against_the_translators():
     rows = plan(StubTranslation({REGISTER_URL: REGISTER}), [{
         "id": REGISTER_URL, "item_type": "newspaperArticle",

@@ -148,7 +148,7 @@ class _Index:
         entry = {
             "key": None, "library": "this plan", "plan_row": position,
             "identifier": row.identifier, "title": title,
-            "year": (rec.field_of(item, "date") or "")[:4] or None,
+            "year": rec.year_of(rec.field_of(item, "date")),
         }
         self._add(entry, item.get("DOI"), item.get("ISBN"), _url_of(row), title)
 

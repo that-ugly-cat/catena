@@ -27,7 +27,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
-from .records import field_of
+from .records import field_of, year_of
 
 DEFAULT_URL = "http://translation:1969"
 TIMEOUT = 30
@@ -188,7 +188,7 @@ def brief(item: dict) -> dict:
         "type": item.get("itemType"),
         "title": (field_of(item, "title") or "")[:140],
         "first_author": first_author(item),
-        "year": (field_of(item, "date") or "")[:4] or None,
+        "year": year_of(field_of(item, "date")),
         "container": field_of(item, "container") or field_of(item, "publisher") or None,
         "doi": item.get("DOI") or None,
         "isbn": item.get("ISBN") or None,

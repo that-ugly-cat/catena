@@ -81,9 +81,11 @@ PLAIN = {
 
 METADATA_KEYS = set(FAMILIES) | set(PLAIN) | {"authors", "editors", "fields"}
 
-# Keys of a Zotero item that are structure, not fields of its type.
+# Keys of a Zotero item that are structure, not fields of its type. The last
+# four are the translator's bookkeeping: carried through and stripped at write,
+# never reported as "dropped", where they read as data lost.
 STRUCTURAL = {"itemType", "creators", "tags", "collections", "relations", "notes",
-              "attachments", "seeAlso"}
+              "attachments", "seeAlso", "key", "version", "dateAdded", "dateModified"}
 
 
 class Schema(Protocol):
@@ -113,6 +115,16 @@ def field_of(item: dict, family: str) -> str | None:
         if item.get(name):
             return item[name]
     return None
+
+
+def year_of(date: str | None) -> str | None:
+    """The year in a Zotero date, whatever its shape.
+
+    Translators hand back "2006-06-26T19:12:47Z", "10/2006" or "June 1964";
+    the first four characters of those are a year only in the first case.
+    """
+    m = re.search(r"(?<!\d)(\d{4})(?!\d)", date or "")
+    return m.group(1) if m else None
 
 
 def titles_agree(a: str | None, b: str | None) -> bool:
@@ -192,7 +204,7 @@ def synthetic_identifier(item: dict) -> str:
             break
     basis = "|".join([
         fold(field_of(item, "title") or ""),
-        (field_of(item, "date") or "")[:4],
+        year_of(field_of(item, "date")) or "",
         fold(first),
     ])
     return "ref:" + hashlib.sha1(basis.encode()).hexdigest()[:16]
