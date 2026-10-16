@@ -11,9 +11,11 @@ request goes out with *their* key. catena holds no credential of its own, so a
 caller reaches exactly what its owner reaches and there is no configuration that
 could widen that. An account with no Zotero key reaches nothing at all.
 
-Reads are free. Writes are confined to the binding's deposit library, and there
-is no tool here that deletes anything or edits an item that already exists —
-the worst this surface can do is add a collection nobody wanted.
+Reads are free. Writes are confined to the binding's deposit library. Nothing
+here deletes anything, and the one edit an existing item can receive is to its
+collection membership — filing it into a collection of the binding, or out of
+the deposit collection itself — never to its fields. Taking an item out of a
+collection leaves it in the library.
 
 Errors come back as {"error": ...} rather than raised: a tool that throws hands
 the model a stack trace to hallucinate around, while a sentence it can read lets
@@ -32,7 +34,7 @@ from .. import build
 from . import auth, ingest as ing
 from .models import Binding, IngestPlan, SessionLocal, ZoteroCredential
 from .translation import DEFAULT_URL, Translation, TranslationError, brief
-from .zotero_client import ZoteroError, zot_for
+from .zotero_client import ZoteroError, pick_collection, zot_for
 
 TRANSLATION_URL = os.environ.get("TRANSLATION_URL", DEFAULT_URL)
 
@@ -187,8 +189,13 @@ def get_binding(ctx, label: str) -> dict:
 
 @mcp.tool()
 @_tool
-def collection_items(ctx, label: str, limit: int = 100) -> dict:
+def collection_items(ctx, label: str, limit: int = 100, collection: str = "") -> dict:
     """What a binding's collections hold, both legs merged.
+
+    The deposit leg is read with every collection below the deposit
+    collection, and each item says which of them it is filed in
+    (`collections`, by name) — an item can be in several. `collection`, a name
+    or key below the deposit collection, narrows the deposit leg to that one.
 
     Items are returned with the key and library needed to cite them. Anything
     that appears on both legs is flagged: the same paper reached through two
@@ -204,11 +211,20 @@ def collection_items(ctx, label: str, limit: int = 100) -> dict:
         if b.source_collection_key
         else []
     )
-    deposit = (
-        z.collection_items(b.deposit_library, b.deposit_collection_key, limit)
-        if b.deposit_collection_key and not b.one_legged
-        else []
-    )
+    deposit = []
+    target = None
+    if b.deposit_collection_key and not b.one_legged:
+        target = ing.resolve_target(z, b, collection)
+        tree = [{"key": k, "name": n} for k, n in target.names.items()]
+        if not target.is_root:
+            tree = [{"key": target.key, "name": target.name}]
+        deposit = z.tree_items(b.deposit_library, b.deposit_collection_key, limit,
+                               tree=tree)
+        for it in deposit:
+            it["collections"] = [target.names[c] for c in it["collections"]
+                                 if c in target.names]
+    elif collection:
+        return _fail("this binding has no deposit collection to narrow to")
 
     def sig(it: dict) -> str:
         if it.get("doi"):
@@ -230,10 +246,11 @@ def collection_items(ctx, label: str, limit: int = 100) -> dict:
             )
 
     def strip(it: dict) -> dict:
-        return {k: v for k, v in it.items() if k != "csljson"}
+        return {k: v for k, v in it.items() if k not in ("csljson", "version")}
 
     return {
         "binding": b.label,
+        "collection": target.name if target else None,
         "source": [strip(i) for i in source],
         "deposit": [strip(i) for i in deposit],
         "duplicates_across_legs": duplicates,
@@ -457,8 +474,14 @@ def create_binding(
 
 @mcp.tool()
 @_tool
-def create_collection(ctx, name: str, library: str = "") -> dict:
-    """Create a collection in a writable library. Confirm with the user first."""
+def create_collection(ctx, name: str, library: str = "", parent: str = "") -> dict:
+    """Create a collection in a writable library. Confirm with the user first.
+
+    `parent`, a collection's name or key in the same library, makes it a
+    subcollection — one per chapter of a book, say, under the binding's
+    deposit collection. Names stay unique across the library, so that naming
+    a collection anywhere in catena never has two answers.
+    """
     z = ctx.zot()
     writable = [l.library for l in z.libraries() if l.writable]
     target = library or (writable[0] if len(writable) == 1 else "")
@@ -466,21 +489,31 @@ def create_collection(ctx, name: str, library: str = "") -> dict:
         return _fail("name the library: your key can write to " + str(writable))
     if target not in writable:
         return _fail(f"{target} is not writable by your key")
-    if z.find_collection(target, name):
+    name = (name or "").strip()
+    if not name:
+        return _fail("a collection needs a name")
+    existing = z.collections(target)
+    if any(c["name"].strip().lower() == name.lower() for c in existing):
         return _fail(f"{target} already has a collection called {name!r}")
+    parent_row = pick_collection(existing, parent, target) if parent.strip() else None
 
     from .zotero_client import parse_library
     from pyzotero import zotero as _z
 
     ident, kind = parse_library(target)
     client = _z.Zotero(ident, kind, z.api_key)
-    resp = client.create_collections([{"name": name}])
+    payload = {"name": name}
+    if parent_row:
+        payload["parentCollection"] = parent_row["key"]
+    resp = client.create_collections([payload])
     created = (resp.get("successful") or {}).get("0") or {}
     return {
         "created": {
             "library": target,
             "name": name,
             "key": created.get("key") or (created.get("data") or {}).get("key"),
+            "parent": ({"key": parent_row["key"], "name": parent_row["name"]}
+                       if parent_row else None),
         }
     }
 
@@ -515,6 +548,8 @@ def plan_ingest(
     identifiers: list[str] | None = None,
     hints: dict | None = None,
     entries: list[dict] | None = None,
+    collection: str = "",
+    file_present: bool = True,
 ) -> dict:
     """Resolve a batch, decide nothing, and write nothing.
 
@@ -554,27 +589,44 @@ def plan_ingest(
     `overridden` (with the translator's value beside it) or `asserted`, and
     the item goes into Zotero tagged catena:caller-metadata. A DOI that does
     not resolve is not rescued by metadata: it was probably copied wrong.
+
+    `collection` deposits into a collection below the binding's deposit
+    collection — a chapter's — by name or key; empty means the deposit
+    collection itself. The plan records it, and apply_ingest files there and
+    nowhere else. Duplicates are still looked for across the whole binding:
+    an item another chapter already holds comes back `present`, and its
+    `filing` says it will be filed into this collection too rather than
+    added again (`file_into`). `file_present=false` leaves such items where
+    they are.
     """
     b = ctx.binding(label)
     if not identifiers and not entries:
         return _fail("nothing to plan: give identifiers, entries, or both")
+    z = ctx.zot()
+    target = ing.resolve_target(z, b, collection)
     rows = ing.build_plan(
-        ctx.zot(), Translation(TRANSLATION_URL), b, identifiers or [], hints or {},
-        entries=entries or [],
+        z, Translation(TRANSLATION_URL), b, identifiers or [], hints or {},
+        entries=entries or [], target=target, file_present=file_present,
     )
-    plan = ing.save_plan(ctx.db, b, rows)
+    plan = ing.save_plan(ctx.db, b, rows, target.key if target else None)
     counts = {}
     for r in rows:
         counts[r.outcome] = counts.get(r.outcome, 0) + 1
+    to_file = sum(1 for r in rows if r.file_into)
+    if to_file:
+        counts["to_file"] = to_file
     return {
         "plan_id": plan.id,
         "binding": b.label,
         "deposit": b.deposit_library,
+        "collection": {"key": target.key, "name": target.name} if target else None,
         "counts": counts,
         "rows": [
             {k: v for k, v in r.as_dict().items() if k != "raw"} for r in rows
         ],
-        "note": "Nothing has been written. apply_ingest(plan_id) executes exactly this.",
+        "note": "Nothing has been written. apply_ingest(plan_id) executes exactly this"
+        + (f", including filing {to_file} existing item(s) into "
+           f"{target.name!r}." if to_file else "."),
     }
 
 
@@ -590,6 +642,10 @@ def apply_ingest(ctx, plan_id: int, force_ambiguous: bool = False) -> dict:
     `force_ambiguous` adds the rows that matched an existing title or URL
     without sharing an identifier. Only say yes to that when a person has
     looked. Rows marked `invalid` or `unresolved` are never written.
+
+    New items go into the collection the plan recorded. Rows the plan marked
+    with `file_into` are existing items: they are filed into that collection
+    as well, and listed under `filed` — no second copy is made.
     """
     plan = ctx.db.query(IngestPlan).filter(IngestPlan.id == plan_id).first()
     if not plan:
@@ -611,6 +667,7 @@ def add_item(
     item_type: str = "",
     metadata: dict | None = None,
     ref_key: str = "",
+    collection: str = "",
 ) -> dict:
     """Add one source to a binding's deposit collection. Confirm first.
 
@@ -618,21 +675,27 @@ def add_item(
     that what gets confirmed is a list somebody read rather than a sequence of
     isolated yeses. `item_type` and `metadata` work as in plan_ingest's entries:
     they win over the translator, or make the item when there is no identifier.
+
+    `collection` works as in plan_ingest: a collection below the deposit
+    collection, and an item the binding already holds elsewhere is filed into
+    it instead of added again.
     """
     b = ctx.binding(label)
+    z = ctx.zot()
+    target = ing.resolve_target(z, b, collection)
     entry = {"id": identifier, "hint": hint, "ref_key": ref_key,
              "item_type": item_type, "metadata": metadata}
     rows = ing.build_plan(
-        ctx.zot(), Translation(TRANSLATION_URL), b, [],
-        entries=[{k: v for k, v in entry.items() if v}],
+        z, Translation(TRANSLATION_URL), b, [],
+        entries=[{k: v for k, v in entry.items() if v}], target=target,
     )
-    if rows[0].outcome != "new":
+    if rows[0].outcome != "new" and not rows[0].file_into:
         return {
             "not_added": rows[0].outcome,
             "row": {k: v for k, v in rows[0].as_dict().items() if k != "raw"},
         }
-    plan = ing.save_plan(ctx.db, b, rows)
-    return ing.apply_plan(ctx.db, ctx.zot(), b, plan)
+    plan = ing.save_plan(ctx.db, b, rows, target.key if target else None)
+    return ing.apply_plan(ctx.db, z, b, plan)
 
 
 @mcp.tool()
@@ -681,3 +744,30 @@ def add_verified(
         ctx.db, ctx.zot(), b, plan,
         provenance={"run_id": run_id, "verdict": verdict, "passages": passages},
     )
+
+
+@mcp.tool()
+@_tool
+def file_items(ctx, label: str, keys: list[str], collection: str,
+               move: bool = False) -> dict:
+    """File existing items into a collection of the binding. Confirm first.
+
+    `collection` is a name or key below the binding's deposit collection (or
+    the deposit collection itself); `keys` are Zotero item keys already
+    somewhere in the binding — anything else is refused, so this never reaches
+    the rest of the library. An item can be in several collections, and
+    filing adds one.
+
+    `move` also takes each item out of the deposit collection itself, in the
+    same write, so nothing is left half-moved: the way to sort items sitting
+    loose in the book's collection into a chapter. Only collection membership
+    changes — no field is touched, nothing is deleted, and an item leaving a
+    collection stays in the library. An item somebody edited since it was read
+    is reported under `failed` and left alone.
+    """
+    b = ctx.binding(label)
+    z = ctx.zot()
+    target = ing.resolve_target(z, b, collection)
+    if not target:
+        return _fail("this binding has no deposit collection to file under")
+    return ing.file_items(z, b, keys, target, move=move)

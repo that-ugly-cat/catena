@@ -46,7 +46,7 @@ from .translation import (
     first_author,
     normalise,
 )
-from .zotero_client import Zot, parse_library
+from .zotero_client import Zot, ZoteroError, parse_library
 
 # Item types where the translators are least reliable, so the type is put in
 # front of a person rather than trusted. Measured: 140 `document` items in a
@@ -88,6 +88,10 @@ class Row:
     asserted: dict = field(default_factory=dict)
     dropped: dict = field(default_factory=dict)
     defaulted: dict = field(default_factory=dict)
+    # A `present` row whose item is elsewhere in the binding: the collection
+    # apply_ingest files it into as well, and the sentence that says so.
+    file_into: str | None = None
+    filing: str | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -108,7 +112,62 @@ class Row:
             "asserted": self.asserted,
             "dropped": self.dropped,
             "defaulted": self.defaulted,
+            "file_into": self.file_into,
+            "filing": self.filing,
         }
+
+
+@dataclass
+class Target:
+    """Where a plan deposits: the binding's deposit collection or one below it.
+
+    `names` covers the whole tree, so a row can say which chapter an item is
+    already filed under.
+    """
+
+    key: str
+    name: str
+    root: str
+    names: dict[str, str]
+
+    @property
+    def is_root(self) -> bool:
+        return self.key == self.root
+
+
+def resolve_target(zot: Zot, binding: Binding, collection: str = "") -> Target | None:
+    """The collection a call names, looked up only below the deposit collection.
+
+    By key, or by exact name ignoring case. A collection with the same name
+    elsewhere in the library is never picked: a write confined to the binding
+    must not wander out of it because two names happen to agree.
+    """
+    root = binding.deposit_collection_key
+    if not root:
+        if collection:
+            raise ValueError("this binding has no deposit collection to file under")
+        return None
+    tree = zot.tree(binding.deposit_library, root)
+    names = {c["key"]: c["name"] for c in tree}
+    wanted = (collection or "").strip()
+    if not wanted:
+        return Target(root, names[root], root, names)
+    if wanted in names:
+        return Target(wanted, names[wanted], root, names)
+    hits = [k for k, n in names.items() if n.strip().lower() == wanted.lower()]
+    if len(hits) == 1:
+        return Target(hits[0], names[hits[0]], root, names)
+    if hits:
+        raise ValueError(
+            f"{len(hits)} collections below {names[root]!r} are called {wanted!r} "
+            f"({', '.join(hits)}); name one by key"
+        )
+    below = [n for k, n in names.items() if k != root]
+    raise ValueError(
+        f"no collection called {wanted!r} below {names[root]!r}. "
+        + (f"There are: {'; '.join(below)}. " if below else "It has none yet. ")
+        + "create_collection with parent makes one."
+    )
 
 
 class _Index:
@@ -161,7 +220,10 @@ def _existing(twin: dict, match: str) -> dict:
     if twin.get("plan_row") is not None:
         return {"plan_row": twin["plan_row"], "identifier": twin["identifier"],
                 "match": match}
-    return {"key": twin["key"], "library": twin["library"], "match": match}
+    out = {"key": twin["key"], "library": twin["library"], "match": match}
+    if twin.get("collections"):
+        out["collections"] = list(twin["collections"])
+    return out
 
 
 def _candidate(c: dict) -> dict:
@@ -371,6 +433,8 @@ def build_plan(
     existing: list[dict] | None = None,
     schema=None,
     today=None,
+    target: Target | None = None,
+    file_present: bool = True,
 ) -> list[Row]:
     """Resolve everything, decide nothing. Reads only — no write happens here.
 
@@ -378,8 +442,13 @@ def build_plan(
     source can carry an item type and metadata that win over the translator, or
     stand alone when nothing resolves it. `schema` answers which fields an item
     type has; it defaults to the caller's Zotero.
+
+    `target` is the collection the plan deposits into. Duplicates are looked
+    for across the whole binding all the same, so a paper filed under one
+    chapter is `present` when another chapter asks for it, and with
+    `file_present` the plan says it will be filed there too instead of added.
     """
-    pool = existing if existing is not None else _collection_pool(zot, binding)
+    pool = existing if existing is not None else _collection_pool(zot, binding, target)
     idx = _Index(pool)
     schema = schema or zot
 
@@ -390,27 +459,73 @@ def build_plan(
             _dedup(row, idx)
             if row.outcome == "new":
                 idx.add_planned(row, position)
+            elif row.outcome == "present" and target and not target.is_root:
+                _filing(row, binding, target, file_present)
         rows.append(row)
     return rows
 
 
-def _collection_pool(zot: Zot, binding: Binding) -> list[dict]:
+def _filing(row: Row, binding: Binding, target: Target, file_present: bool) -> None:
+    """Say what happens to a `present` item when the plan targets a subcollection.
+
+    An item can sit in several Zotero collections, so a paper chapter 15 already
+    cites is filed into chapter 31 as well: the same item, one URI, one entry
+    in the bibliography. A copy would be the duplicate dedup exists to stop.
+    """
+    ex = row.existing or {}
+    if ex.get("plan_row") is not None or not ex.get("key"):
+        return
+    cols = ex.pop("collections", None) or []
+    if ex.get("library") != binding.deposit_library:
+        row.filing = (
+            f"present on the source leg ({ex.get('library')}): cite it from there. "
+            f"It cannot be filed into {target.name!r}, which is in "
+            f"{binding.deposit_library}."
+        )
+        return
+    held = [c for c in cols if c in target.names]
+    ex["in"] = [target.names[c] for c in held]
+    where = ", ".join(repr(n) for n in ex["in"]) or "the binding"
+    if target.key in held:
+        row.filing = f"already filed in {target.name!r}; nothing to do."
+    elif file_present:
+        row.file_into = target.key
+        row.filing = (
+            f"already in {where}. apply_ingest files it into {target.name!r} "
+            "too: the same item, not a second copy."
+        )
+    else:
+        row.filing = (
+            f"already in {where}; not filed into {target.name!r}, because "
+            "file_present is off."
+        )
+
+
+def _collection_pool(zot: Zot, binding: Binding, target: Target | None = None) -> list[dict]:
+    """Everything a new item could duplicate: the source collection, and the
+    deposit collection with every collection below it."""
     pool: list[dict] = []
     if binding.source_collection_key:
         pool += zot.collection_items(
             binding.source_library, binding.source_collection_key, POOL_LIMIT
         )
     if binding.deposit_collection_key and not binding.one_legged:
-        pool += zot.collection_items(
-            binding.deposit_library, binding.deposit_collection_key, POOL_LIMIT
+        tree = None
+        if target:
+            tree = [{"key": k, "name": n} for k, n in target.names.items()]
+        pool += zot.tree_items(
+            binding.deposit_library, binding.deposit_collection_key, POOL_LIMIT,
+            tree=tree,
         )
     return pool
 
 
-def save_plan(db, binding: Binding, rows: list[Row]) -> IngestPlan:
+def save_plan(db, binding: Binding, rows: list[Row],
+              collection_key: str | None = None) -> IngestPlan:
     plan = IngestPlan(
         binding_id=binding.id,
         payload=json.dumps([r.as_dict() for r in rows], ensure_ascii=False),
+        collection_key=collection_key,
     )
     db.add(plan)
     db.commit()
@@ -469,7 +584,7 @@ def _skip_reason(row: Row, force_ambiguous: bool) -> str | None:
 
 def apply_plan(
     db, zot: Zot, binding: Binding, plan: IngestPlan, *, force_ambiguous: bool = False,
-    provenance: dict | None = None,
+    provenance: dict | None = None, client=None,
 ) -> dict:
     """Execute exactly what the plan declared, once.
 
@@ -487,11 +602,16 @@ def apply_plan(
     known = set(Row.__dataclass_fields__)
     rows = [Row(**{k: v for k, v in r.items() if k in known})
             for r in json.loads(plan.payload)]
-    ident, kind = parse_library(binding.deposit_library)
-    client = zotero.Zotero(ident, kind, zot.api_key)
+    if client is None:
+        ident, kind = parse_library(binding.deposit_library)
+        client = zotero.Zotero(ident, kind, zot.api_key)
+    into = plan.collection_key or binding.deposit_collection_key
 
-    added, skipped, failed = [], [], []
+    added, skipped, failed, filed = [], [], [], []
     for row in rows:
+        if row.outcome == "present" and row.file_into:
+            _file_present(zot, binding.deposit_library, row, filed, skipped, failed)
+            continue
         why = _skip_reason(row, force_ambiguous)
         if why:
             skipped.append({"identifier": row.identifier, "ref_key": row.ref_key, "why": why})
@@ -519,7 +639,7 @@ def apply_plan(
             continue
 
         try:
-            item = _to_zotero_item(row, binding.deposit_collection_key, provenance)
+            item = _to_zotero_item(row, into, provenance)
             resp = client.create_items([item])
             key = _created_key(resp)
             if not key:
@@ -554,7 +674,85 @@ def apply_plan(
 
     plan.applied_at = utcnow()
     db.commit()
-    return {"plan": plan.id, "added": added, "skipped": skipped, "failed": failed}
+    return {"plan": plan.id, "added": added, "filed": filed, "skipped": skipped,
+            "failed": failed}
+
+
+def _file_present(zot: Zot, library: str, row: Row, filed, skipped, failed) -> None:
+    """File an item the plan found elsewhere in the binding into its target.
+
+    The item is read again rather than trusted from the plan: its collections
+    and version may have moved since, and the write is guarded by the version.
+    """
+    key = row.existing["key"]
+    base = {"identifier": row.identifier, "ref_key": row.ref_key, "key": key}
+    try:
+        got = zot.items(library, [key])
+        if not got:
+            failed.append({**base, "error": f"{key} is no longer in {library}"})
+            return
+        cols = got[0]["collections"]
+        if row.file_into in cols:
+            skipped.append({**base, "why": "already filed in the target collection"})
+            return
+        zot.set_collections(library, key, got[0]["version"], cols + [row.file_into])
+    except ZoteroError as e:
+        failed.append({**base, "error": str(e)[:200]})
+        return
+    filed.append({**base, "title": got[0].get("title"), "into": row.file_into})
+
+
+# One request to read each key and one to write it: a cap keeps a call bounded.
+FILE_LIMIT = 100
+
+
+def file_items(zot: Zot, binding: Binding, keys: list[str], target: Target,
+               *, move: bool = False) -> dict:
+    """File existing items into a collection of the binding; optionally move them.
+
+    Only collection membership changes: never a field, never a deletion. An
+    item leaving a collection stays in the library. Only items already
+    somewhere in the binding are accepted, so this cannot reach into the rest
+    of the library. `move` takes the item out of the deposit collection itself
+    in the same write that files it, so nothing is ever half-moved.
+    """
+    keys = list(dict.fromkeys(k.strip() for k in keys or [] if k and k.strip()))
+    if not keys:
+        return {"error": "no keys to file"}
+    if len(keys) > FILE_LIMIT:
+        return {"error": f"{len(keys)} keys; at most {FILE_LIMIT} per call"}
+    if move and target.is_root:
+        return {"error": f"moving into {target.name!r} itself would take the items "
+                         "out of the collection they are being filed into"}
+    lib = binding.deposit_library
+    found = {it["key"]: it for it in zot.items(lib, keys)}
+    filed, unchanged, refused, failed = [], [], [], []
+    for key in keys:
+        it = found.get(key)
+        if not it:
+            refused.append({"key": key, "why": f"not in {lib}"})
+            continue
+        cols = list(it["collections"])
+        if not set(cols) & set(target.names):
+            refused.append({"key": key, "why": "not in this binding's collections"})
+            continue
+        new = cols if target.key in cols else cols + [target.key]
+        removed = move and target.root in new
+        if removed:
+            new = [c for c in new if c != target.root]
+        if new == cols:
+            unchanged.append({"key": key, "why": f"already in {target.name!r}"})
+            continue
+        try:
+            zot.set_collections(lib, key, it["version"], new)
+        except ZoteroError as e:
+            failed.append({"key": key, "error": str(e)[:200]})
+            continue
+        filed.append({"key": key, "title": (it.get("title") or "")[:90],
+                      "removed_from_parent": removed})
+    return {"into": {"key": target.key, "name": target.name},
+            "moved": move, "filed": filed, "unchanged": unchanged,
+            "refused": refused, "failed": failed}
 
 
 # Fields the translator emits that belong to *its* copy of the item and would

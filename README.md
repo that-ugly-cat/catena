@@ -77,9 +77,10 @@ afterwards.
 
 ## The MCP surface
 
-Eleven tools at `/mcp`, authenticated by a per-user key. Reads are free; the
-three writes touch only the binding's deposit library, and nothing here deletes
-anything or edits an item that already exists.
+Seventeen tools at `/mcp`, authenticated by a per-user key. Reads are free;
+the writes touch only the binding's deposit library. Nothing here deletes
+anything, and the one change an existing item can receive is to the collections
+it is filed in — never to its fields.
 
 Reading: `list_libraries` (what your key reaches, and where it can write),
 `list_collections`, `list_bindings`, `get_binding`, `collection_items`,
@@ -101,7 +102,18 @@ tagged `catena:caller-metadata` (guide §5). And `add_verified` adds a paper tog
 cited — Contrarian's verbatim passages as a child note, and a tag carrying the
 bearing, `catena:supports` or `catena:contradicts`.
 
-Writing, after the user confirms: `create_collection` and `create_binding`.
+Writing, after the user confirms: `create_collection` (with `parent`, a
+subcollection) and `create_binding`.
+
+**Subcollections.** A binding's deposit collection can hold one collection per
+chapter. `plan_ingest` and `add_item` take `collection`, a name or key below the
+deposit collection, and the plan records it, so `apply_ingest` deposits exactly
+there. Duplicates are still looked for across the whole binding: a paper one
+chapter already holds comes back `present`, and the plan says it will be filed
+into the new chapter too (`file_into`) instead of copied — an item can be in
+several collections. `collection_items` reads every chapter and says which ones
+each item is in. `file_items` files existing items into a chapter, and with
+`move` takes them out of the deposit collection itself in the same write.
 
 Three guards stand in front of every write. **Idempotency**: a unique row on
 (binding, identifier) catches the retry pyzotero's own write token does not,

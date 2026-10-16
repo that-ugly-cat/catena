@@ -155,6 +155,10 @@ class Zot:
                 return c
         return None
 
+    def tree(self, library: str, root_key: str) -> list[dict]:
+        """A collection and everything below it, at any depth, root first."""
+        return subtree(self.collections(library), root_key)
+
     @staticmethod
     def _paged(z: zotero.Zotero, rows: list[dict], limit: int) -> list[dict]:
         """Keep following the 'next' link until `limit` rows are in hand.
@@ -187,6 +191,58 @@ class Zot:
         z.add_parameters(include="csljson,data", limit=min(limit, PAGE))
         rows = self._paged(z, z.collection_items_top(collection_key), limit)
         return [self._shape(library, r) for r in rows]
+
+    def tree_items(self, library: str, root_key: str, limit: int = 200,
+                   tree: list[dict] | None = None) -> list[dict]:
+        """Top-level items of a collection *and of every collection below it*.
+
+        Zotero's API answers for one collection at a time and never includes
+        its subcollections, so a book filed one chapter per subcollection reads
+        as empty from the top. This walks the tree and merges by key: an item
+        filed under two chapters comes back once, with both in `collections`.
+        """
+        tree = tree if tree is not None else self.tree(library, root_key)
+        out: dict[str, dict] = {}
+        for c in tree:
+            for it in self.collection_items(library, c["key"], limit):
+                out.setdefault(it["key"], it)
+            if len(out) >= limit:
+                break
+        return list(out.values())[:limit]
+
+    def set_collections(self, library: str, key: str, version: int,
+                        collections: list[str]) -> None:
+        """Replace one item's collection list, and nothing else about it.
+
+        A PATCH that carries only `collections`, guarded by the version the
+        caller read: if somebody changed the item in between, Zotero answers
+        412 and nothing is written. Adding and removing a collection go in the
+        same request, so an item is never left half-moved.
+        """
+        parse_library(library)
+        req = urllib.request.Request(
+            f"https://api.zotero.org/{library}/items/{key}",
+            data=json.dumps({"collections": collections}).encode(),
+            method="PATCH",
+            headers={
+                "Zotero-API-Version": "3",
+                "Zotero-API-Key": self.api_key,
+                "Content-Type": "application/json",
+                "If-Unmodified-Since-Version": str(version),
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30):
+                return
+        except urllib.error.HTTPError as e:
+            if e.code == 412:
+                raise ZoteroError(
+                    f"{library}/{key} changed since it was read; nothing written. "
+                    "Read it again and retry."
+                ) from e
+            raise ZoteroError(f"{library}/{key}: Zotero answered {e.code}") from e
+        except urllib.error.URLError as e:
+            raise ZoteroError(f"{library}/{key}: {e.reason}") from e
 
     def search(self, library: str, query: str, limit: int = 25) -> list[dict]:
         z = self._client(library)
@@ -261,8 +317,53 @@ class Zot:
             "doi": data.get("DOI") or None,
             "isbn": data.get("ISBN") or None,
             "url": data.get("url") or None,
+            "collections": list(data.get("collections") or []),
+            "version": row.get("version") or data.get("version"),
             "csljson": csl,
         }
+
+
+def pick_collection(collections: list[dict], wanted: str, library: str) -> dict:
+    """One collection of a library, by key or by exact name ignoring case.
+
+    Two collections with the same name are refused rather than guessed between:
+    Zotero allows them under different parents, and the wrong one is a
+    subcollection made in the wrong place.
+    """
+    wanted = (wanted or "").strip()
+    for c in collections:
+        if c["key"] == wanted:
+            return c
+    hits = [c for c in collections if c["name"].strip().lower() == wanted.lower()]
+    if len(hits) > 1:
+        raise ValueError(
+            f"{len(hits)} collections in {library} are called {wanted!r} "
+            f"({', '.join(c['key'] for c in hits)}); name it by key"
+        )
+    if not hits:
+        raise ValueError(f"no collection called {wanted!r} in {library}")
+    return hits[0]
+
+
+def subtree(collections: list[dict], root_key: str) -> list[dict]:
+    """`root_key` and its descendants, root first, from a library's collections.
+
+    Raises when the root is not there: a binding whose deposit collection has
+    vanished should say so, not read as an empty book.
+    """
+    by_key = {c["key"]: c for c in collections}
+    if root_key not in by_key:
+        raise ZoteroError(f"collection {root_key} is not in this library any more")
+    children: dict[str, list[dict]] = {}
+    for c in collections:
+        if c.get("parent"):
+            children.setdefault(c["parent"], []).append(c)
+    out, todo = [], [by_key[root_key]]
+    while todo:
+        c = todo.pop(0)
+        out.append(c)
+        todo += sorted(children.get(c["key"], []), key=lambda x: x["name"])
+    return out
 
 
 def zot_for(cred: ZoteroCredential | None) -> Zot:

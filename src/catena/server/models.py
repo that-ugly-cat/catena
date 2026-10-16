@@ -198,6 +198,9 @@ class IngestPlan(Base):
     id = Column(Integer, primary_key=True)
     binding_id = Column(Integer, ForeignKey("bindings.id"), nullable=False)
     payload = Column(Text, nullable=False)
+    # The collection the plan deposits into: the binding's deposit collection
+    # or one below it. Stored, so apply files where the plan said it would.
+    collection_key = Column(String, nullable=True)
     created_at = Column(DateTime, default=utcnow)
     applied_at = Column(DateTime, nullable=True)
 
@@ -208,6 +211,7 @@ class IngestPlan(Base):
 # ALTER TABLE when the column is missing and does nothing when it is there.
 _ADDED_COLUMNS = {
     "users": {"borant_sub": "VARCHAR"},
+    "ingest_plans": {"collection_key": "VARCHAR"},
 }
 
 
